@@ -1,6 +1,5 @@
-
-import { logisticProbability } from "@/lib/model";
-import { blendedProbability } from "@/lib/blend";
+import { logisticProbability } from "../../../lib/model";
+import { blendedProbability } from "../../../lib/blend";
 
 export async function POST(req: Request) {
   const body = await req.json();
