@@ -1,6 +1,6 @@
 export const metadata = {
   title: "NBA AI Betting Engine",
-  description: "Serious predictive NBA model"
+  description: "Serious predictive NBA model",
 };
 
 export default function RootLayout({
@@ -10,7 +10,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body style={{ fontFamily: "Arial, sans-serif", margin: 0 }}>
+      <body>
         {children}
       </body>
     </html>
