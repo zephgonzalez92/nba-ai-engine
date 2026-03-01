@@ -1,3 +1,5 @@
+import React from "react";
+
 export const metadata = {
   title: "NBA AI Betting Engine",
   description: "Serious predictive NBA model",
