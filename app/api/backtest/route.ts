@@ -14,13 +14,16 @@ function expectedScore(eloA: number, eloB: number) {
 
 export async function GET() {
   try {
-    const { data: games } = await supabase
+    const { data: games, error: gamesError } = await supabase
       .from("games")
       .select("*")
       .order("game_date", { ascending: true });
 
-    if (!games) {
-      return Response.json({ error: "No games found" }, { status: 404 });
+    if (gamesError || !games) {
+      return Response.json(
+        { error: gamesError?.message || "No games found" },
+        { status: 500 }
+      );
     }
 
     let totalGames = 0;
@@ -30,24 +33,35 @@ export async function GET() {
     let brierElo = 0;
 
     for (const game of games) {
-      const { home_team, away_team, home_score, away_score } = game;
+      const {
+        id,
+        home_team,
+        away_team,
+        home_score,
+        away_score,
+        game_date
+      } = game;
 
-      // Get Elo BEFORE game
+      if (home_score == null || away_score == null) continue;
+
+      // 🔹 Get Elo BEFORE this game (prevents future leakage)
       const { data: homeEloData } = await supabase
         .from("elo_ratings")
         .select("elo_before")
         .eq("team", home_team)
+        .lt("game_id", id)
         .order("game_id", { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
 
       const { data: awayEloData } = await supabase
         .from("elo_ratings")
         .select("elo_before")
         .eq("team", away_team)
+        .lt("game_id", id)
         .order("game_id", { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
 
       if (!homeEloData || !awayEloData) continue;
 
@@ -56,26 +70,32 @@ export async function GET() {
 
       const eloProb = expectedScore(homeElo, awayElo);
 
-      // Get team stats
-      const { data: homeTeam } = await supabase
-        .from("teams")
+      // 🔹 Get dynamic team ratings BEFORE this game
+      const { data: homeRating } = await supabase
+        .from("team_ratings_history")
         .select("*")
-        .eq("name", home_team)
-        .single();
+        .eq("team", home_team)
+        .lte("game_date", game_date)
+        .order("game_date", { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-      const { data: awayTeam } = await supabase
-        .from("teams")
+      const { data: awayRating } = await supabase
+        .from("team_ratings_history")
         .select("*")
-        .eq("name", away_team)
-        .single();
+        .eq("team", away_team)
+        .lte("game_date", game_date)
+        .order("game_date", { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-      if (!homeTeam || !awayTeam) continue;
+      if (!homeRating || !awayRating) continue;
 
       const features = {
         elo_diff: homeElo - awayElo,
-        off_diff: homeTeam.off_rating - awayTeam.off_rating,
-        def_diff: homeTeam.def_rating - awayTeam.def_rating,
-        pace: homeTeam.pace - awayTeam.pace,
+        off_diff: homeRating.off_rating - awayRating.off_rating,
+        def_diff: homeRating.def_rating - awayRating.def_rating,
+        pace: homeRating.pace - awayRating.pace,
         home: 1
       };
 
@@ -84,11 +104,17 @@ export async function GET() {
       const actual = home_score > away_score ? 1 : 0;
 
       // Accuracy
-      if ((modelProb > 0.5 && actual === 1) || (modelProb <= 0.5 && actual === 0)) {
+      if (
+        (modelProb > 0.5 && actual === 1) ||
+        (modelProb <= 0.5 && actual === 0)
+      ) {
         correctModel++;
       }
 
-      if ((eloProb > 0.5 && actual === 1) || (eloProb <= 0.5 && actual === 0)) {
+      if (
+        (eloProb > 0.5 && actual === 1) ||
+        (eloProb <= 0.5 && actual === 0)
+      ) {
         correctElo++;
       }
 
@@ -99,15 +125,25 @@ export async function GET() {
       totalGames++;
     }
 
+    if (totalGames === 0) {
+      return Response.json({
+        totalGames: 0,
+        message: "No valid games evaluated"
+      });
+    }
+
     return Response.json({
       totalGames,
-      modelAccuracy: (correctModel / totalGames).toFixed(4),
-      eloAccuracy: (correctElo / totalGames).toFixed(4),
-      modelBrier: (brierModel / totalGames).toFixed(4),
-      eloBrier: (brierElo / totalGames).toFixed(4)
+      modelAccuracy: Number((correctModel / totalGames).toFixed(4)),
+      eloAccuracy: Number((correctElo / totalGames).toFixed(4)),
+      modelBrier: Number((brierModel / totalGames).toFixed(4)),
+      eloBrier: Number((brierElo / totalGames).toFixed(4))
     });
 
-  } catch (err) {
-    return Response.json({ error: "Backtest failed" }, { status: 500 });
+  } catch (err: any) {
+    return Response.json(
+      { error: err?.message || "Backtest failed" },
+      { status: 500 }
+    );
   }
 }
