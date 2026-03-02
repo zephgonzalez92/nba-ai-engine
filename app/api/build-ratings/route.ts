@@ -22,15 +22,35 @@ const MAX_ALPHA = 0.35; // 🔒 Prevent explosive updates
 export async function GET() {
   try {
     // 1️⃣ Get only completed games chronologically
-    const { data: games, error: gamesError } = await supabase
-      .from("games")
-      .select("*")
-      .not("home_score", "is", null)
-      .not("away_score", "is", null)
-      .gt("home_score", 0)
-      .gt("away_score", 0)
-      .order("game_date", { ascending: true })
-      .range(0, 10000);
+    let allGames: any[] = [];
+let from = 0;
+const pageSize = 1000;
+
+while (true) {
+  const { data, error } = await supabase
+    .from("games")
+    .select("*")
+    .not("home_score", "is", null)
+    .not("away_score", "is", null)
+    .gt("home_score", 0)
+    .gt("away_score", 0)
+    .order("game_date", { ascending: true })
+    .range(from, from + pageSize - 1);
+
+  if (error) {
+    return Response.json({ error: error.message }, { status: 500 });
+  }
+
+  if (!data || data.length === 0) break;
+
+  allGames = allGames.concat(data);
+
+  if (data.length < pageSize) break;
+
+  from += pageSize;
+}
+
+const games = allGames;
 
     if (gamesError) {
       return Response.json(
