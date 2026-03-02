@@ -14,14 +14,14 @@ export async function GET() {
   try {
     for (const season of seasons) {
       const response = await axios.get(
-        `https://api.balldontlie.io/v1/games`,
+        "https://api.balldontlie.io/v1/games",
         {
           headers: {
             Authorization: API_KEY,
           },
           params: {
             seasons: [season],
-            per_page: 100,
+            per_page: 100, // limited batch to avoid rate limits
           },
         }
       );
@@ -46,6 +46,9 @@ export async function GET() {
     });
 
   } catch (error: any) {
-    return Response.json({ error: error.message }, { status: 400 });
+    return Response.json(
+      { error: error.message },
+      { status: 400 }
+    );
   }
 }
