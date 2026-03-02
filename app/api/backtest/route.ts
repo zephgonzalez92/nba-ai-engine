@@ -12,11 +12,19 @@ function expectedScore(eloA: number, eloB: number) {
   return 1 / (1 + Math.pow(10, (eloB - eloA) / 400));
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
+    // ✅ Allow optional season override
+    const { searchParams } = new URL(req.url);
+    const seasonParam = searchParams.get("season");
+    const TARGET_SEASON = seasonParam
+      ? Number(seasonParam)
+      : 2025; // default to 2025 season test
+
     const { data: games, error: gamesError } = await supabase
       .from("games")
       .select("*")
+      .eq("season", TARGET_SEASON)
       .order("game_date", { ascending: true });
 
     if (gamesError || !games) {
@@ -44,7 +52,7 @@ export async function GET() {
 
       if (home_score == null || away_score == null) continue;
 
-      // 🔹 Get Elo BEFORE this game (prevents future leakage)
+      // 🔹 Get Elo BEFORE this game
       const { data: homeEloData } = await supabase
         .from("elo_ratings")
         .select("elo_before")
@@ -70,7 +78,7 @@ export async function GET() {
 
       const eloProb = expectedScore(homeElo, awayElo);
 
-      // 🔹 Get dynamic team ratings BEFORE this game
+      // 🔹 Get dynamic team ratings
       const { data: homeRating } = await supabase
         .from("team_ratings_history")
         .select("*")
@@ -100,7 +108,6 @@ export async function GET() {
       };
 
       const modelProb = logisticProbability(features);
-
       const actual = home_score > away_score ? 1 : 0;
 
       // Accuracy
@@ -127,12 +134,14 @@ export async function GET() {
 
     if (totalGames === 0) {
       return Response.json({
+        seasonTested: TARGET_SEASON,
         totalGames: 0,
         message: "No valid games evaluated"
       });
     }
 
     return Response.json({
+      seasonTested: TARGET_SEASON,
       totalGames,
       modelAccuracy: Number((correctModel / totalGames).toFixed(4)),
       eloAccuracy: Number((correctElo / totalGames).toFixed(4)),
