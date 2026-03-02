@@ -14,13 +14,13 @@ export async function GET() {
           "https://api.balldontlie.io/v1/games",
           {
             params: {
-              seasons: season,
+              "seasons[]": season,
               per_page: 100,
               page: page,
             },
             headers: {
-              Authorization: process.env.BALLDONTLIE_API_KEY || ""
-            }
+              Authorization: process.env.BALLDONTLIE_API_KEY!,
+            },
           }
         );
 
@@ -51,6 +51,8 @@ export async function GET() {
 
     return Response.json({ status: "Historical games synced" });
   } catch (error: any) {
-    return Response.json({ error: error.message });
+    return Response.json({
+      error: error.response?.data || error.message,
+    });
   }
 }
