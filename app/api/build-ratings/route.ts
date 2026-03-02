@@ -63,25 +63,37 @@ export async function GET() {
 
       const homePoints = game.home_score ?? 0;
       const awayPoints = game.away_score ?? 0;
-      const totalPoints = homePoints + awayPoints;
 
+      // 🔥 Estimate possessions (simple but effective)
+      const possessions = (homePoints + awayPoints) / 2;
+
+      if (possessions === 0) continue;
+
+      // 🔥 Convert to efficiency per 100 possessions
+      const homeOffRtg = (homePoints / possessions) * 100;
+      const homeDefRtg = (awayPoints / possessions) * 100;
+
+      const awayOffRtg = (awayPoints / possessions) * 100;
+      const awayDefRtg = (homePoints / possessions) * 100;
+
+      // Initialize if first appearance
       if (!ratings[home]) {
         ratings[home] = {
-          off: homePoints,
-          def: awayPoints,
-          pace: totalPoints
+          off: homeOffRtg,
+          def: homeDefRtg,
+          pace: possessions
         };
       }
 
       if (!ratings[away]) {
         ratings[away] = {
-          off: awayPoints,
-          def: homePoints,
-          pace: totalPoints
+          off: awayOffRtg,
+          def: awayDefRtg,
+          pace: possessions
         };
       }
 
-      // 👇 SAVE PRE-GAME SNAPSHOT
+      // 👇 SAVE PRE-GAME SNAPSHOT (unchanged structure)
       const { error: insertError } = await supabase
         .from("team_ratings_history")
         .insert([
@@ -112,28 +124,28 @@ export async function GET() {
         );
       }
 
-      // 🔁 THEN UPDATE RATINGS AFTER SNAPSHOT
+      // 🔁 THEN UPDATE RATINGS AFTER SNAPSHOT (EWMA using efficiency)
       ratings[home].off =
-        ALPHA * homePoints + (1 - ALPHA) * ratings[home].off;
+        ALPHA * homeOffRtg + (1 - ALPHA) * ratings[home].off;
 
       ratings[home].def =
-        ALPHA * awayPoints + (1 - ALPHA) * ratings[home].def;
+        ALPHA * homeDefRtg + (1 - ALPHA) * ratings[home].def;
 
       ratings[home].pace =
-        ALPHA * totalPoints + (1 - ALPHA) * ratings[home].pace;
+        ALPHA * possessions + (1 - ALPHA) * ratings[home].pace;
 
       ratings[away].off =
-        ALPHA * awayPoints + (1 - ALPHA) * ratings[away].off;
+        ALPHA * awayOffRtg + (1 - ALPHA) * ratings[away].off;
 
       ratings[away].def =
-        ALPHA * homePoints + (1 - ALPHA) * ratings[away].def;
+        ALPHA * awayDefRtg + (1 - ALPHA) * ratings[away].def;
 
       ratings[away].pace =
-        ALPHA * totalPoints + (1 - ALPHA) * ratings[away].pace;
+        ALPHA * possessions + (1 - ALPHA) * ratings[away].pace;
     }
 
     return Response.json({
-      message: "Pre-game dynamic ratings successfully rebuilt",
+      message: "Efficiency-based pre-game dynamic ratings successfully rebuilt",
       totalGames: games.length
     });
 
