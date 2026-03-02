@@ -1,6 +1,8 @@
 import axios from "axios";
 import { createClient } from "@supabase/supabase-js";
 
+export const dynamic = "force-dynamic"; // 🔥 VERY IMPORTANT FIX
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -10,7 +12,6 @@ const API_KEY = process.env.BALLDONTLIE_API_KEY!;
 
 const seasons = [2022, 2023, 2024, 2025];
 
-// 🔥 Small delay helper to prevent 429
 function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -40,11 +41,10 @@ export async function GET() {
             }
           );
         } catch (err: any) {
-          // 🔥 Handle 429 rate limit gracefully
           if (err.response?.status === 429) {
             console.log("Rate limited. Waiting 2 seconds...");
             await sleep(2000);
-            continue; // retry same page
+            continue;
           }
           throw err;
         }
@@ -79,10 +79,9 @@ export async function GET() {
 
         page++;
 
-        // 🔥 Prevent rate limit
-        await sleep(600); // 0.6 second delay
+        await sleep(600);
 
-        if (page > 30) break; // safety guard
+        if (page > 30) break;
       }
     }
 
