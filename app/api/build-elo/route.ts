@@ -18,11 +18,12 @@ export async function GET() {
     // Clear previous Elo ratings
     await supabase.from("elo_ratings").delete().neq("game_id", 0);
 
-    // Get completed games only (prevents future games from affecting Elo)
+    // Get completed games for specific season only
 const { data: games, error } = await supabase
   .from("games")
   .select("*")
-  .gt("home_score", 0)
+  .eq("season", 2025)        // ← THIS LINE IS THE SEASON GUARD
+  .gt("home_score", 0)       // only completed games
   .gt("away_score", 0)
   .order("game_date", { ascending: true });
 
