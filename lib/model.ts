@@ -6,8 +6,8 @@ export function logisticProbability(features: any) {
 
   const z =
     0.004 * elo_diff +
-    0.08 * off_diff -
-    0.07 * def_diff +
+    0.05 * off_diff -   // ⬅ reduced from 0.08
+    0.05 * def_diff +   // ⬅ reduced from 0.07
     0.01 * pace +
     0.15 * home;
 
