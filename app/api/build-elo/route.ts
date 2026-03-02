@@ -18,11 +18,13 @@ export async function GET() {
     // Clear previous Elo ratings
     await supabase.from("elo_ratings").delete().neq("game_id", 0);
 
-    // Get games ordered chronologically
-    const { data: games, error } = await supabase
-      .from("games")
-      .select("*")
-      .order("game_date", { ascending: true });
+    // Get completed games only (prevents future games from affecting Elo)
+const { data: games, error } = await supabase
+  .from("games")
+  .select("*")
+  .gt("home_score", 0)
+  .gt("away_score", 0)
+  .order("game_date", { ascending: true });
 
     if (error) throw error;
 
