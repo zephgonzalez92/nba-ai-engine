@@ -27,10 +27,10 @@ export async function GET(req: Request) {
     }
 
     const season = parseInt(seasonParam);
-    let page = 1;
+    let page: number | null = 1;
     let totalProcessed = 0;
 
-    while (true) {
+    while (page !== null) {
       let response;
 
       try {
@@ -48,7 +48,6 @@ export async function GET(req: Request) {
           }
         );
       } catch (err: any) {
-        // Handle rate limit safely
         if (err.response?.status === 429) {
           console.log("Rate limited. Waiting 1 second...");
           await sleep(1000);
@@ -58,8 +57,8 @@ export async function GET(req: Request) {
       }
 
       const games = response.data.data;
+      const meta = response.data.meta;
 
-      // No more pages
       if (!games || games.length === 0) {
         break;
       }
@@ -86,13 +85,10 @@ export async function GET(req: Request) {
 
       totalProcessed += formatted.length;
 
-      page++;
+      // 🔥 FIXED PAGINATION
+      page = meta?.next_page ?? null;
 
-      // Light throttle (safe for 60 req/min tier)
       await sleep(300);
-
-      // Safety guard (NBA season normally < 20 pages)
-      if (page > 40) break;
     }
 
     return Response.json({
