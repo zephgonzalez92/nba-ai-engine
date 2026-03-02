@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
-import { logisticProbability } from "../../../../lib/model";
-import { blendedProbability } from "../../../../lib/blend";
+import { logisticProbability } from "@/lib/model";
+import { blendedProbability } from "@/lib/blend";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
