@@ -11,7 +11,7 @@ const supabase = createClient(
 const API_KEY = process.env.BALLDONTLIE_API_KEY!;
 
 function sleep(ms: number) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export async function GET(req: Request) {
@@ -26,7 +26,15 @@ export async function GET(req: Request) {
       );
     }
 
-    const season = parseInt(seasonParam);
+    const season = Number(seasonParam);
+
+    if (isNaN(season)) {
+      return Response.json(
+        { error: "Invalid season format" },
+        { status: 400 }
+      );
+    }
+
     let page: number | null = 1;
     let totalProcessed = 0;
 
@@ -43,8 +51,9 @@ export async function GET(req: Request) {
             params: {
               seasons: [season],
               per_page: 100,
-              page: page,
+              page,
             },
+            timeout: 15000, // prevents Vercel hanging
           }
         );
       } catch (err: any) {
@@ -53,13 +62,14 @@ export async function GET(req: Request) {
           await sleep(1000);
           continue;
         }
+
         throw err;
       }
 
-      const games = response.data.data;
-      const meta = response.data.meta;
+      const games = response?.data?.data ?? [];
+      const meta = response?.data?.meta;
 
-      if (!games || games.length === 0) {
+      if (games.length === 0) {
         break;
       }
 
@@ -68,26 +78,29 @@ export async function GET(req: Request) {
         .map((g: any) => ({
           id: g.id,
           game_date: g.date,
-          season: season,
+          season,
           home_team: g.home_team.name,
           away_team: g.visitor_team.name,
           home_score: g.home_team_score,
           away_score: g.visitor_team_score,
         }));
 
-      const { error } = await supabase
-        .from("games")
-        .upsert(formatted, { onConflict: "id" });
+      if (formatted.length > 0) {
+        const { error } = await supabase
+          .from("games")
+          .upsert(formatted, { onConflict: "id" });
 
-      if (error) {
-        throw new Error(error.message);
+        if (error) {
+          throw new Error(error.message);
+        }
+
+        totalProcessed += formatted.length;
       }
 
-      totalProcessed += formatted.length;
-
-      // 🔥 FIXED PAGINATION
+      // Proper pagination handling
       page = meta?.next_page ?? null;
 
+      // Throttle for API tier safety
       await sleep(300);
     }
 
@@ -97,8 +110,10 @@ export async function GET(req: Request) {
     });
 
   } catch (error: any) {
+    console.error("Sync Error:", error);
+
     return Response.json(
-      { error: error.message },
+      { error: error?.message || "Unknown server error" },
       { status: 500 }
     );
   }
