@@ -15,6 +15,7 @@ const supabase = createClient(
 );
 
 const ALPHA = 0.2;
+const MAX_ALPHA = 0.35; // 🔒 Prevent explosive updates
 
 export async function GET() {
   try {
@@ -51,7 +52,6 @@ export async function GET() {
       );
     }
 
-    // Store latest ratings in memory
     const ratings: Record<
       string,
       { off: number; def: number; pace: number }
@@ -64,36 +64,34 @@ export async function GET() {
       const homePoints = game.home_score ?? 0;
       const awayPoints = game.away_score ?? 0;
 
-      // 🔥 Estimate possessions (simple but effective)
       const possessions = (homePoints + awayPoints) / 2;
-
       if (possessions === 0) continue;
 
-      // 🔥 Convert to efficiency per 100 possessions
-      const homeOffRtg = (homePoints / possessions) * 100;
-      const homeDefRtg = (awayPoints / possessions) * 100;
+      // Efficiency per 100 possessions
+      const homeOff = (homePoints / possessions) * 100;
+      const homeDef = (awayPoints / possessions) * 100;
 
-      const awayOffRtg = (awayPoints / possessions) * 100;
-      const awayDefRtg = (homePoints / possessions) * 100;
+      const awayOff = (awayPoints / possessions) * 100;
+      const awayDef = (homePoints / possessions) * 100;
 
-      // Initialize if first appearance
+      // Initialize ratings if first appearance
       if (!ratings[home]) {
         ratings[home] = {
-          off: homeOffRtg,
-          def: homeDefRtg,
+          off: homeOff,
+          def: homeDef,
           pace: possessions
         };
       }
 
       if (!ratings[away]) {
         ratings[away] = {
-          off: awayOffRtg,
-          def: awayDefRtg,
+          off: awayOff,
+          def: awayDef,
           pace: possessions
         };
       }
 
-      // 👇 SAVE PRE-GAME SNAPSHOT (unchanged structure)
+      // 🔹 SAVE PRE-GAME SNAPSHOT
       const { error: insertError } = await supabase
         .from("team_ratings_history")
         .insert([
@@ -124,28 +122,44 @@ export async function GET() {
         );
       }
 
-      // 🔁 THEN UPDATE RATINGS AFTER SNAPSHOT (EWMA using efficiency)
+      // 🔹 Margin-of-victory scaling
+      const pointDiff = homePoints - awayPoints;
+      const marginMultiplier = Math.log(Math.abs(pointDiff) + 1);
+
+      // 🔹 Opponent-adjusted efficiency
+      const adjHomeOff = homeOff - ratings[away].def;
+      const adjHomeDef = homeDef - ratings[away].off;
+
+      const adjAwayOff = awayOff - ratings[home].def;
+      const adjAwayDef = awayDef - ratings[home].off;
+
+      // 🔹 Scaled alpha (clamped for safety)
+      let scaledAlpha = ALPHA * marginMultiplier;
+      if (scaledAlpha > MAX_ALPHA) scaledAlpha = MAX_ALPHA;
+      if (scaledAlpha < 0.05) scaledAlpha = 0.05;
+
+      // 🔁 Update ratings AFTER snapshot
       ratings[home].off =
-        ALPHA * homeOffRtg + (1 - ALPHA) * ratings[home].off;
+        scaledAlpha * adjHomeOff + (1 - scaledAlpha) * ratings[home].off;
 
       ratings[home].def =
-        ALPHA * homeDefRtg + (1 - ALPHA) * ratings[home].def;
+        scaledAlpha * adjHomeDef + (1 - scaledAlpha) * ratings[home].def;
 
       ratings[home].pace =
         ALPHA * possessions + (1 - ALPHA) * ratings[home].pace;
 
       ratings[away].off =
-        ALPHA * awayOffRtg + (1 - ALPHA) * ratings[away].off;
+        scaledAlpha * adjAwayOff + (1 - scaledAlpha) * ratings[away].off;
 
       ratings[away].def =
-        ALPHA * awayDefRtg + (1 - ALPHA) * ratings[away].def;
+        scaledAlpha * adjAwayDef + (1 - scaledAlpha) * ratings[away].def;
 
       ratings[away].pace =
         ALPHA * possessions + (1 - ALPHA) * ratings[away].pace;
     }
 
     return Response.json({
-      message: "Efficiency-based pre-game dynamic ratings successfully rebuilt",
+      message: "Advanced margin-adjusted efficiency ratings successfully rebuilt",
       totalGames: games.length
     });
 
