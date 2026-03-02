@@ -64,10 +64,6 @@ while (true) {
 
 const games = allGames;
 
-    if (gamesError) {
-      return Response.json({ error: gamesError.message }, { status: 500 });
-    }
-
     if (!games || games.length === 0) {
       return Response.json({
         message: "No completed games found",
