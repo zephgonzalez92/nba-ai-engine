@@ -49,11 +49,11 @@ export async function GET(req: Request) {
               Authorization: API_KEY,
             },
             params: {
-              seasons: [season],
+              "seasons[]": season,   // 🔥 FIXED PARAM FORMAT
               per_page: 100,
               page,
             },
-            timeout: 15000, // prevents Vercel hanging
+            timeout: 15000,
           }
         );
       } catch (err: any) {
@@ -62,12 +62,13 @@ export async function GET(req: Request) {
           await sleep(1000);
           continue;
         }
-
         throw err;
       }
 
       const games = response?.data?.data ?? [];
       const meta = response?.data?.meta;
+
+      console.log("Page:", page, "Next Page:", meta?.next_page);
 
       if (games.length === 0) {
         break;
@@ -97,10 +98,8 @@ export async function GET(req: Request) {
         totalProcessed += formatted.length;
       }
 
-      // Proper pagination handling
       page = meta?.next_page ?? null;
 
-      // Throttle for API tier safety
       await sleep(300);
     }
 
