@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { createClient } from "@supabase/supabase-js";
 
 // 🔎 Validate environment variables early
@@ -19,16 +21,16 @@ const MAX_ALPHA = 0.35; // 🔒 Prevent explosive updates
 
 export async function GET() {
   try {
-    // 1️⃣ Get only completed games chronologically (ignore future 0-0 games)
+    // 1️⃣ Get only completed games chronologically
     const { data: games, error: gamesError } = await supabase
-  .from("games")
-  .select("*")
-  .not("home_score", "is", null)
-  .not("away_score", "is", null)
-  .gt("home_score", 0)
-  .gt("away_score", 0)
-  .order("game_date", { ascending: true })
-  .range(0, 10000);
+      .from("games")
+      .select("*")
+      .not("home_score", "is", null)
+      .not("away_score", "is", null)
+      .gt("home_score", 0)
+      .gt("away_score", 0)
+      .order("game_date", { ascending: true })
+      .range(0, 10000);
 
     if (gamesError) {
       return Response.json(
@@ -163,7 +165,7 @@ export async function GET() {
         ALPHA * possessions + (1 - ALPHA) * ratings[away].pace;
     }
 
-    // 🔥 NEW: UPDATE TEAMS TABLE WITH FINAL RATINGS SNAPSHOT
+    // 🔥 Update teams table with final snapshot
     const teamUpdates = Object.entries(ratings).map(([team, values]) => ({
       name: team,
       off_rating: values.off,
