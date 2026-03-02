@@ -1,9 +1,9 @@
 import axios from "axios";
 import { createClient } from "@supabase/supabase-js";
 
-export const runtime = "nodejs";       // 🔥 prevents edge/static issues
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const revalidate = 0;           // 🔥 disables static generation
+export const revalidate = 0;
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -41,20 +41,38 @@ export async function GET(req: Request) {
     let totalProcessed = 0;
 
     do {
-      const response = await axios.get(
-        "https://api.balldontlie.io/v1/games",
-        {
-          headers: {
-            Authorization: API_KEY,
-          },
-          params: {
-            season,
-            per_page: 100,
-            cursor,
-          },
-          timeout: 15000,
+      let response;
+
+      try {
+        response = await axios.get(
+          "https://api.balldontlie.io/v1/games",
+          {
+            headers: {
+              Authorization: API_KEY,
+            },
+            params: {
+              season,
+              per_page: 100,
+              cursor,
+            },
+            timeout: 15000,
+          }
+        );
+      } catch (err: any) {
+        if (err.response?.status === 429) {
+          const retryAfter =
+            Number(err.response.headers["retry-after"]) || 3;
+
+          console.log(
+            `Rate limited. Waiting ${retryAfter} seconds before retrying...`
+          );
+
+          await sleep(retryAfter * 1000);
+          continue; // retry same cursor safely
         }
-      );
+
+        throw err;
+      }
 
       const games = response?.data?.data ?? [];
       const meta = response?.data?.meta;
@@ -83,7 +101,8 @@ export async function GET(req: Request) {
 
       cursor = meta?.next_cursor;
 
-      await sleep(300);
+      // Light throttle for safety
+      await sleep(400);
 
     } while (cursor);
 
@@ -94,6 +113,7 @@ export async function GET(req: Request) {
 
   } catch (error: any) {
     console.error("Sync Error:", error);
+
     return Response.json(
       { error: error?.message || "Unknown server error" },
       { status: 500 }
