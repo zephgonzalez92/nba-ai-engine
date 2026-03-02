@@ -16,6 +16,31 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function fetchWithRetry(url: string, options: any, retries = 5) {
+  try {
+    return await axios.get(url, options);
+  } catch (err: any) {
+    const status = err.response?.status;
+
+    if (
+      retries > 0 &&
+      [429, 502, 503, 504].includes(status)
+    ) {
+      const retryAfter =
+        Number(err.response?.headers?.["retry-after"]) || 4;
+
+      console.log(
+        `API error ${status}. Retrying in ${retryAfter}s... (${retries} retries left)`
+      );
+
+      await sleep(retryAfter * 1000);
+      return fetchWithRetry(url, options, retries - 1);
+    }
+
+    throw err;
+  }
+}
+
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
@@ -41,38 +66,20 @@ export async function GET(req: Request) {
     let totalProcessed = 0;
 
     do {
-      let response;
-
-      try {
-        response = await axios.get(
-          "https://api.balldontlie.io/v1/games",
-          {
-            headers: {
-              Authorization: API_KEY,
-            },
-            params: {
-              season,
-              per_page: 100,
-              cursor,
-            },
-            timeout: 15000,
-          }
-        );
-      } catch (err: any) {
-        if (err.response?.status === 429) {
-          const retryAfter =
-            Number(err.response.headers["retry-after"]) || 3;
-
-          console.log(
-            `Rate limited. Waiting ${retryAfter} seconds before retrying...`
-          );
-
-          await sleep(retryAfter * 1000);
-          continue; // retry same cursor safely
+      const response = await fetchWithRetry(
+        "https://api.balldontlie.io/v1/games",
+        {
+          headers: {
+            Authorization: API_KEY,
+          },
+          params: {
+            season,
+            per_page: 100,
+            cursor,
+          },
+          timeout: 15000,
         }
-
-        throw err;
-      }
+      );
 
       const games = response?.data?.data ?? [];
       const meta = response?.data?.meta;
@@ -101,8 +108,7 @@ export async function GET(req: Request) {
 
       cursor = meta?.next_cursor;
 
-      // Light throttle for safety
-      await sleep(400);
+      await sleep(500); // slower = safer
 
     } while (cursor);
 
