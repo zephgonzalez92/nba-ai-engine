@@ -21,13 +21,14 @@ export async function GET() {
   try {
     // 1️⃣ Get only completed games chronologically (ignore future 0-0 games)
     const { data: games, error: gamesError } = await supabase
-      .from("games")
-      .select("*")
-      .not("home_score", "is", null)
-      .not("away_score", "is", null)
-      .gt("home_score", 0)
-      .gt("away_score", 0)
-      .order("game_date", { ascending: true });
+  .from("games")
+  .select("*")
+  .not("home_score", "is", null)
+  .not("away_score", "is", null)
+  .gt("home_score", 0)
+  .gt("away_score", 0)
+  .order("game_date", { ascending: true })
+  .range(0, 10000);
 
     if (gamesError) {
       return Response.json(
