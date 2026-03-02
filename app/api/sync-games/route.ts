@@ -73,7 +73,7 @@ export async function GET(req: Request) {
             Authorization: API_KEY,
           },
           params: {
-            season,
+            seasons: [season], // ✅ FIXED (was "season")
             per_page: 100,
             cursor,
           },
@@ -89,7 +89,7 @@ export async function GET(req: Request) {
       const formatted = games.map((g: any) => ({
         id: g.id,
         game_date: g.date,
-        season,
+        season: g.season, // ✅ use real season from API
         home_team: g.home_team.name,
         away_team: g.visitor_team.name,
         home_score: g.home_team_score,
@@ -108,7 +108,7 @@ export async function GET(req: Request) {
 
       cursor = meta?.next_cursor;
 
-      await sleep(500); // slower = safer
+      await sleep(500);
 
     } while (cursor);
 
