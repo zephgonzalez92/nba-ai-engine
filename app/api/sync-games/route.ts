@@ -17,26 +17,28 @@ export async function GET() {
         "https://api.balldontlie.io/v1/games",
         {
           headers: {
-            Authorization: API_KEY,
+            Authorization: API_KEY!,
           },
           params: {
             seasons: [season],
-            per_page: 100, // limited batch to avoid rate limits
+            per_page: 100,
           },
         }
       );
 
       const games = response.data.data;
 
-      const formatted = games.map((g: any) => ({
-        id: g.id,
-        game_date: g.date,
-        season: season,
-        home_team: g.home_team.full_name,
-        away_team: g.away_team.full_name,
-        home_score: g.home_team_score,
-        away_score: g.visitor_team_score,
-      }));
+      const formatted = games
+        .filter((g: any) => g.home_team && g.visitor_team)
+        .map((g: any) => ({
+          id: g.id,
+          game_date: g.date,
+          season: season,
+          home_team: g.home_team.name,
+          away_team: g.visitor_team.name,
+          home_score: g.home_team_score,
+          away_score: g.visitor_team_score,
+        }));
 
       await supabase.from("games").upsert(formatted);
     }
