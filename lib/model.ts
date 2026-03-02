@@ -1,3 +1,6 @@
+// 🔥 Temperature calibration parameter
+const TEMPERATURE = 1.3;
+
 export function logisticProbability(features: any) {
   const { elo_diff, off_diff, def_diff, pace, home } = features;
 
@@ -8,5 +11,8 @@ export function logisticProbability(features: any) {
     0.01 * pace +
     0.15 * home;
 
-  return 1 / (1 + Math.exp(-z));
+  // 🔥 Apply temperature scaling
+  const scaledZ = z / TEMPERATURE;
+
+  return 1 / (1 + Math.exp(-scaledZ));
 }
