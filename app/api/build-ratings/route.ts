@@ -19,10 +19,14 @@ const MAX_ALPHA = 0.35; // 🔒 Prevent explosive updates
 
 export async function GET() {
   try {
-    // 1️⃣ Get all games chronologically
+    // 1️⃣ Get only completed games chronologically (ignore future 0-0 games)
     const { data: games, error: gamesError } = await supabase
       .from("games")
       .select("*")
+      .not("home_score", "is", null)
+      .not("away_score", "is", null)
+      .gt("home_score", 0)
+      .gt("away_score", 0)
       .order("game_date", { ascending: true });
 
     if (gamesError) {
@@ -34,7 +38,7 @@ export async function GET() {
 
     if (!games || games.length === 0) {
       return Response.json({
-        message: "No games found",
+        message: "No completed games found",
         totalGames: 0
       });
     }
@@ -158,9 +162,29 @@ export async function GET() {
         ALPHA * possessions + (1 - ALPHA) * ratings[away].pace;
     }
 
+    // 🔥 NEW: UPDATE TEAMS TABLE WITH FINAL RATINGS SNAPSHOT
+    const teamUpdates = Object.entries(ratings).map(([team, values]) => ({
+      name: team,
+      off_rating: values.off,
+      def_rating: values.def,
+      pace: values.pace
+    }));
+
+    const { error: teamError } = await supabase
+      .from("teams")
+      .upsert(teamUpdates, { onConflict: "name" });
+
+    if (teamError) {
+      return Response.json(
+        { error: teamError.message },
+        { status: 500 }
+      );
+    }
+
     return Response.json({
       message: "Advanced margin-adjusted efficiency ratings successfully rebuilt",
-      totalGames: games.length
+      totalGames: games.length,
+      totalTeamsUpdated: teamUpdates.length
     });
 
   } catch (err: any) {
