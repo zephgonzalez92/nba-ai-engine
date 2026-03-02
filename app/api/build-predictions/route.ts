@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { createClient } from "@supabase/supabase-js";
 
 if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
@@ -14,7 +16,7 @@ const supabase = createClient(
 );
 
 const HOME_ADVANTAGE = 3;       // points
-const K_FACTOR = 0.12;         // logistic sensitivity
+const K_FACTOR = 0.12;          // logistic sensitivity
 const EFF_WEIGHT = 0.65;
 const ELO_WEIGHT = 0.35;
 
@@ -36,10 +38,18 @@ export async function GET() {
       .from("games")
       .select("*")
       .not("home_score", "is", null)
-      .not("away_score", "is", null);
+      .not("away_score", "is", null)
+      .range(0, 10000);
 
     if (gamesError) {
       return Response.json({ error: gamesError.message }, { status: 500 });
+    }
+
+    if (!games || games.length === 0) {
+      return Response.json({
+        message: "No completed games found",
+        totalBuilt: 0
+      });
     }
 
     let totalBuilt = 0;
@@ -67,18 +77,23 @@ export async function GET() {
         .select("*")
         .in("team", [game.home_team, game.away_team]);
 
-      const homeElo = eloRows?.find(e => e.team === game.home_team)?.elo ?? 1500;
-      const awayElo = eloRows?.find(e => e.team === game.away_team)?.elo ?? 1500;
+      const homeElo =
+        eloRows?.find(e => e.team === game.home_team)?.elo ?? 1500;
+
+      const awayElo =
+        eloRows?.find(e => e.team === game.away_team)?.elo ?? 1500;
 
       const eloGap = (homeElo - awayElo) / 25; // scale ELO to point-like gap
 
       // Combine efficiency + ELO
       const efficiencyGap = homeEffNet - awayEffNet + HOME_ADVANTAGE;
+
       const finalGap =
         EFF_WEIGHT * efficiencyGap +
         ELO_WEIGHT * eloGap;
 
       const homeWinProb = logistic(finalGap);
+
       const predictedWinner =
         homeWinProb >= 0.5 ? game.home_team : game.away_team;
 
@@ -89,17 +104,22 @@ export async function GET() {
 
       const correct = predictedWinner === actualWinner;
 
-      await supabase.from("predictions").upsert({
-        game_id: game.id,
-        season: game.season,
-        home_team: game.home_team,
-        away_team: game.away_team,
-        predicted_winner: predictedWinner,
-        home_win_probability: homeWinProb,
-        rating_gap: finalGap,
-        confidence_tier: confidenceTier(homeWinProb),
-        correct_prediction: correct
-      }, { onConflict: "game_id" });
+      await supabase
+        .from("predictions")
+        .upsert(
+          {
+            game_id: game.id,
+            season: game.season,
+            home_team: game.home_team,
+            away_team: game.away_team,
+            predicted_winner: predictedWinner,
+            home_win_probability: homeWinProb,
+            rating_gap: finalGap,
+            confidence_tier: confidenceTier(homeWinProb),
+            correct_prediction: correct
+          },
+          { onConflict: "game_id" }
+        );
 
       totalBuilt++;
     }
