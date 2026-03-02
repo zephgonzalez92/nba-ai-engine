@@ -1,7 +1,9 @@
 import axios from "axios";
 import { createClient } from "@supabase/supabase-js";
 
+export const runtime = "nodejs";       // 🔥 prevents edge/static issues
 export const dynamic = "force-dynamic";
+export const revalidate = 0;           // 🔥 disables static generation
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -39,59 +41,42 @@ export async function GET(req: Request) {
     let totalProcessed = 0;
 
     do {
-      let response;
-
-      try {
-        response = await axios.get(
-          "https://api.balldontlie.io/v1/games",
-          {
-            headers: {
-              Authorization: API_KEY,
-            },
-            params: {
-              season,       // ✅ new API expects singular season
-              per_page: 100,
-              cursor,       // ✅ cursor-based pagination
-            },
-            timeout: 15000,
-          }
-        );
-      } catch (err: any) {
-        if (err.response?.status === 429) {
-          console.log("Rate limited. Waiting 1 second...");
-          await sleep(1000);
-          continue;
+      const response = await axios.get(
+        "https://api.balldontlie.io/v1/games",
+        {
+          headers: {
+            Authorization: API_KEY,
+          },
+          params: {
+            season,
+            per_page: 100,
+            cursor,
+          },
+          timeout: 15000,
         }
-        throw err;
-      }
+      );
 
       const games = response?.data?.data ?? [];
       const meta = response?.data?.meta;
 
-      if (games.length === 0) {
-        break;
-      }
+      if (games.length === 0) break;
 
-      const formatted = games
-        .filter((g: any) => g.home_team && g.visitor_team)
-        .map((g: any) => ({
-          id: g.id,
-          game_date: g.date,
-          season,
-          home_team: g.home_team.name,
-          away_team: g.visitor_team.name,
-          home_score: g.home_team_score,
-          away_score: g.visitor_team_score,
-        }));
+      const formatted = games.map((g: any) => ({
+        id: g.id,
+        game_date: g.date,
+        season,
+        home_team: g.home_team.name,
+        away_team: g.visitor_team.name,
+        home_score: g.home_team_score,
+        away_score: g.visitor_team_score,
+      }));
 
       if (formatted.length > 0) {
         const { error } = await supabase
           .from("games")
           .upsert(formatted, { onConflict: "id" });
 
-        if (error) {
-          throw new Error(error.message);
-        }
+        if (error) throw new Error(error.message);
 
         totalProcessed += formatted.length;
       }
@@ -109,7 +94,6 @@ export async function GET(req: Request) {
 
   } catch (error: any) {
     console.error("Sync Error:", error);
-
     return Response.json(
       { error: error?.message || "Unknown server error" },
       { status: 500 }
