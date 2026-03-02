@@ -3,7 +3,7 @@ import { supabase } from "../../../lib/supabase";
 
 export async function GET() {
   try {
-    const seasons = [2022, 2023, 2024, 2025];
+    const seasons = [2025];
 
     for (const season of seasons) {
       let page = 1;
