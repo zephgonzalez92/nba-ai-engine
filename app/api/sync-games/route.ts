@@ -3,7 +3,7 @@ import { supabase } from "../../../lib/supabase";
 
 export async function GET() {
   try {
-    const seasons = [2022, 2023, 2024];
+    const seasons = [2022, 2023, 2024, 2025];
 
     for (const season of seasons) {
       let page = 1;
@@ -11,13 +11,16 @@ export async function GET() {
 
       while (hasMore) {
         const res = await axios.get(
-          "https://www.balldontlie.io/api/v1/games",
+          "https://api.balldontlie.io/v1/games",
           {
             params: {
-              seasons: [season],
+              seasons: season,
               per_page: 100,
               page: page,
             },
+            headers: {
+              Authorization: process.env.BALLDONTLIE_API_KEY || ""
+            }
           }
         );
 
@@ -41,7 +44,7 @@ export async function GET() {
           });
         }
 
-        hasMore = res.data.meta.next_page !== null;
+        hasMore = res.data.meta?.next_page !== null;
         page++;
       }
     }
