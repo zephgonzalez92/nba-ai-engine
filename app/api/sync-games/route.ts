@@ -35,10 +35,10 @@ export async function GET(req: Request) {
       );
     }
 
-    let page: number | null = 1;
+    let cursor: string | undefined = undefined;
     let totalProcessed = 0;
 
-    while (page !== null) {
+    do {
       let response;
 
       try {
@@ -49,9 +49,9 @@ export async function GET(req: Request) {
               Authorization: API_KEY,
             },
             params: {
-              "seasons[]": season,   // 🔥 FIXED PARAM FORMAT
+              season,       // ✅ new API expects singular season
               per_page: 100,
-              page,
+              cursor,       // ✅ cursor-based pagination
             },
             timeout: 15000,
           }
@@ -67,8 +67,6 @@ export async function GET(req: Request) {
 
       const games = response?.data?.data ?? [];
       const meta = response?.data?.meta;
-
-      console.log("Page:", page, "Next Page:", meta?.next_page);
 
       if (games.length === 0) {
         break;
@@ -98,10 +96,11 @@ export async function GET(req: Request) {
         totalProcessed += formatted.length;
       }
 
-      page = meta?.next_page ?? null;
+      cursor = meta?.next_cursor;
 
       await sleep(300);
-    }
+
+    } while (cursor);
 
     return Response.json({
       status: `Season ${season} fully synced`,
