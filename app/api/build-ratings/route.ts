@@ -34,8 +34,7 @@ export async function GET() {
     if (!games || games.length === 0) {
       return Response.json({
         message: "No games found",
-        totalGames: 0,
-        supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL
+        totalGames: 0
       });
     }
 
@@ -66,7 +65,6 @@ export async function GET() {
       const awayPoints = game.away_score ?? 0;
       const totalPoints = homePoints + awayPoints;
 
-      // Initialize teams if first appearance
       if (!ratings[home]) {
         ratings[home] = {
           off: homePoints,
@@ -83,7 +81,7 @@ export async function GET() {
         };
       }
 
-      // 🔥 SAVE PRE-GAME SNAPSHOT (THE FIX)
+      // 👇 SAVE PRE-GAME SNAPSHOT
       const { error: insertError } = await supabase
         .from("team_ratings_history")
         .insert([
@@ -114,7 +112,7 @@ export async function GET() {
         );
       }
 
-      // 🔁 THEN update ratings AFTER snapshot
+      // 🔁 THEN UPDATE RATINGS AFTER SNAPSHOT
       ratings[home].off =
         ALPHA * homePoints + (1 - ALPHA) * ratings[home].off;
 
@@ -136,8 +134,7 @@ export async function GET() {
 
     return Response.json({
       message: "Pre-game dynamic ratings successfully rebuilt",
-      totalGames: games.length,
-      supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL
+      totalGames: games.length
     });
 
   } catch (err: any) {
