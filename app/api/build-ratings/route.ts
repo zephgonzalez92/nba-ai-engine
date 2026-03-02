@@ -83,26 +83,7 @@ export async function GET() {
         };
       }
 
-      // EWMA update (unchanged)
-      ratings[home].off =
-        ALPHA * homePoints + (1 - ALPHA) * ratings[home].off;
-
-      ratings[home].def =
-        ALPHA * awayPoints + (1 - ALPHA) * ratings[home].def;
-
-      ratings[home].pace =
-        ALPHA * totalPoints + (1 - ALPHA) * ratings[home].pace;
-
-      ratings[away].off =
-        ALPHA * awayPoints + (1 - ALPHA) * ratings[away].off;
-
-      ratings[away].def =
-        ALPHA * homePoints + (1 - ALPHA) * ratings[away].def;
-
-      ratings[away].pace =
-        ALPHA * totalPoints + (1 - ALPHA) * ratings[away].pace;
-
-      // Store rating snapshot AFTER game
+      // 🔥 SAVE PRE-GAME SNAPSHOT (THE FIX)
       const { error: insertError } = await supabase
         .from("team_ratings_history")
         .insert([
@@ -132,10 +113,29 @@ export async function GET() {
           { status: 500 }
         );
       }
+
+      // 🔁 THEN update ratings AFTER snapshot
+      ratings[home].off =
+        ALPHA * homePoints + (1 - ALPHA) * ratings[home].off;
+
+      ratings[home].def =
+        ALPHA * awayPoints + (1 - ALPHA) * ratings[home].def;
+
+      ratings[home].pace =
+        ALPHA * totalPoints + (1 - ALPHA) * ratings[home].pace;
+
+      ratings[away].off =
+        ALPHA * awayPoints + (1 - ALPHA) * ratings[away].off;
+
+      ratings[away].def =
+        ALPHA * homePoints + (1 - ALPHA) * ratings[away].def;
+
+      ratings[away].pace =
+        ALPHA * totalPoints + (1 - ALPHA) * ratings[away].pace;
     }
 
     return Response.json({
-      message: "Dynamic ratings successfully built",
+      message: "Pre-game dynamic ratings successfully rebuilt",
       totalGames: games.length,
       supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL
     });
