@@ -1,8 +1,17 @@
 import { createClient } from "@supabase/supabase-js";
 
+// 🔎 Validate environment variables early
+if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
+  throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
+}
+
+if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY");
+}
+
 const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
 const ALPHA = 0.2;
@@ -15,14 +24,22 @@ export async function GET() {
       .select("*")
       .order("game_date", { ascending: true });
 
-    if (gamesError || !games) {
+    if (gamesError) {
       return Response.json(
-        { error: gamesError?.message || "Failed to fetch games" },
+        { error: gamesError.message },
         { status: 500 }
       );
     }
 
-    // 2️⃣ Clear previous ratings history (clean wipe)
+    if (!games || games.length === 0) {
+      return Response.json({
+        message: "No games found",
+        totalGames: 0,
+        supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL
+      });
+    }
+
+    // 2️⃣ Clear previous ratings history
     const { error: deleteError } = await supabase
       .from("team_ratings_history")
       .delete()
@@ -66,7 +83,7 @@ export async function GET() {
         };
       }
 
-      // EWMA update
+      // EWMA update (unchanged)
       ratings[home].off =
         ALPHA * homePoints + (1 - ALPHA) * ratings[home].off;
 
@@ -119,7 +136,8 @@ export async function GET() {
 
     return Response.json({
       message: "Dynamic ratings successfully built",
-      totalGames: games.length
+      totalGames: games.length,
+      supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL
     });
 
   } catch (err: any) {
