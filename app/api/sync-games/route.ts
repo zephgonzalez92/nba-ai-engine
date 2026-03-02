@@ -3,13 +3,14 @@ import { supabase } from "../../../lib/supabase";
 
 export async function GET() {
   try {
-    const seasons = [2025];
+    const seasons = [2025]; // ONLY current season
 
     for (const season of seasons) {
       let page = 1;
       let hasMore = true;
+      let pageCount = 0;
 
-      while (hasMore) {
+      while (hasMore && pageCount < 5) { // limit to 5 pages per run
         const res = await axios.get(
           "https://api.balldontlie.io/v1/games",
           {
@@ -46,10 +47,14 @@ export async function GET() {
 
         hasMore = res.data.meta?.next_page !== null;
         page++;
+        pageCount++;
+
+        // throttle to avoid rate limits
+        await new Promise(resolve => setTimeout(resolve, 800));
       }
     }
 
-    return Response.json({ status: "Historical games synced" });
+    return Response.json({ status: "2025 games synced (limited batch)" });
   } catch (error: any) {
     return Response.json({
       error: error.response?.data || error.message,
