@@ -24,7 +24,6 @@ export async function GET() {
   try {
     let processedCount = 0;
 
-    // Fetch first batch
     const { data: games, error } = await supabase
       .from("games")
       .select("*")
@@ -49,16 +48,29 @@ export async function GET() {
     }
 
     for (const game of games) {
-      const { data: teams } = await supabase
+
+      const { data: teams, error: teamError } = await supabase
         .from("teams")
         .select("*")
         .in("name", [game.home_team, game.away_team]);
 
-      if (!teams || teams.length < 2) continue;
+      if (teamError) {
+        console.log("TEAM FETCH ERROR:", teamError.message);
+        continue;
+      }
+
+      if (!teams || teams.length < 2) {
+        console.log("TEAM MISMATCH:", game.home_team, game.away_team);
+        continue;
+      }
 
       const home = teams.find(t => t.name === game.home_team);
       const away = teams.find(t => t.name === game.away_team);
-      if (!home || !away) continue;
+
+      if (!home || !away) {
+        console.log("TEAM FIND ERROR:", game.home_team, game.away_team);
+        continue;
+      }
 
       const possessions = (game.home_score + game.away_score) / 2;
       if (!possessions || possessions <= 0) continue;
@@ -75,53 +87,77 @@ export async function GET() {
       if (scaledAlpha > MAX_ALPHA) scaledAlpha = MAX_ALPHA;
       if (scaledAlpha < MIN_ALPHA) scaledAlpha = MIN_ALPHA;
 
+      // Protect against null ratings
+      const homeOffRating = Number(home.off_rating ?? 100);
+      const homeDefRating = Number(home.def_rating ?? 100);
+      const homePace = Number(home.pace ?? 100);
+
+      const awayOffRating = Number(away.off_rating ?? 100);
+      const awayDefRating = Number(away.def_rating ?? 100);
+      const awayPace = Number(away.pace ?? 100);
+
       const newHomeOff =
-        scaledAlpha * homeOff + (1 - scaledAlpha) * home.off_rating;
+        scaledAlpha * homeOff + (1 - scaledAlpha) * homeOffRating;
 
       const newHomeDef =
-        scaledAlpha * homeDef + (1 - scaledAlpha) * home.def_rating;
+        scaledAlpha * homeDef + (1 - scaledAlpha) * homeDefRating;
 
       const newHomePace =
-        ALPHA * possessions + (1 - ALPHA) * home.pace;
+        ALPHA * possessions + (1 - ALPHA) * homePace;
 
       const newAwayOff =
-        scaledAlpha * awayOff + (1 - scaledAlpha) * away.off_rating;
+        scaledAlpha * awayOff + (1 - scaledAlpha) * awayOffRating;
 
       const newAwayDef =
-        scaledAlpha * awayDef + (1 - scaledAlpha) * away.def_rating;
+        scaledAlpha * awayDef + (1 - scaledAlpha) * awayDefRating;
 
       const newAwayPace =
-        ALPHA * possessions + (1 - ALPHA) * away.pace;
+        ALPHA * possessions + (1 - ALPHA) * awayPace;
 
-      await Promise.all([
-        supabase
-          .from("teams")
-          .update({
-            off_rating: newHomeOff,
-            def_rating: newHomeDef,
-            pace: newHomePace
-          })
-          .eq("name", game.home_team),
+      // ===== UPDATE HOME TEAM =====
+      const { error: homeUpdateError } = await supabase
+        .from("teams")
+        .update({
+          off_rating: newHomeOff,
+          def_rating: newHomeDef,
+          pace: newHomePace
+        })
+        .eq("name", game.home_team);
 
-        supabase
-          .from("teams")
-          .update({
-            off_rating: newAwayOff,
-            def_rating: newAwayDef,
-            pace: newAwayPace
-          })
-          .eq("name", game.away_team),
+      if (homeUpdateError) {
+        console.log("HOME UPDATE ERROR:", homeUpdateError.message);
+        continue;
+      }
 
-        supabase
-          .from("games")
-          .update({ ratings_processed: true })
-          .eq("id", game.id)
-      ]);
+      // ===== UPDATE AWAY TEAM =====
+      const { error: awayUpdateError } = await supabase
+        .from("teams")
+        .update({
+          off_rating: newAwayOff,
+          def_rating: newAwayDef,
+          pace: newAwayPace
+        })
+        .eq("name", game.away_team);
+
+      if (awayUpdateError) {
+        console.log("AWAY UPDATE ERROR:", awayUpdateError.message);
+        continue;
+      }
+
+      // ===== MARK GAME PROCESSED =====
+      const { error: gameUpdateError } = await supabase
+        .from("games")
+        .update({ ratings_processed: true })
+        .eq("id", game.id);
+
+      if (gameUpdateError) {
+        console.log("GAME UPDATE ERROR:", gameUpdateError.message);
+        continue;
+      }
 
       processedCount++;
     }
 
-    // Fresh count query (do NOT reuse baseQuery)
     const { count } = await supabase
       .from("games")
       .select("*", { count: "exact", head: true })
