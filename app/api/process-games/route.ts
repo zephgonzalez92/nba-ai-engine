@@ -18,21 +18,19 @@ const supabase = createClient(
 const ALPHA = 0.2;
 const MAX_ALPHA = 0.35;
 const MIN_ALPHA = 0.05;
-const BATCH_SIZE = 300; // safe for Vercel 60s runtime
+const BATCH_SIZE = 300;
 
 export async function GET() {
   try {
     let processedCount = 0;
 
-    // Fetch only a safe batch
+    // Always fetch FIRST batch of unprocessed completed games
     const { data: games, error } = await supabase
       .from("games")
       .select("*")
-      .not("home_score", "is", null)
-      .not("away_score", "is", null)
+      .eq("ratings_processed", false)
       .gt("home_score", 0)
       .gt("away_score", 0)
-      .eq("ratings_processed", false)
       .order("game_date", { ascending: true })
       .limit(BATCH_SIZE);
 
@@ -43,33 +41,51 @@ export async function GET() {
     if (!games || games.length === 0) {
       return Response.json({
         message: "No unprocessed games remaining",
-        processedCount: 0
+        processedCount: 0,
+        remainingGames: 0
       });
     }
 
     for (const game of games) {
 
-      // Pull both teams in one query
+      // Pull both teams
       const { data: teams, error: teamError } = await supabase
         .from("teams")
         .select("*")
         .in("name", [game.home_team, game.away_team]);
 
-      if (teamError || !teams || teams.length < 2) continue;
+      // If team lookup fails → mark processed to prevent infinite loop
+      if (teamError || !teams || teams.length < 2) {
+        await supabase
+          .from("games")
+          .update({ ratings_processed: true })
+          .eq("id", game.id);
+        continue;
+      }
 
       const home = teams.find(t => t.name === game.home_team);
       const away = teams.find(t => t.name === game.away_team);
 
-      if (!home || !away) continue;
+      if (!home || !away) {
+        await supabase
+          .from("games")
+          .update({ ratings_processed: true })
+          .eq("id", game.id);
+        continue;
+      }
 
-      // Basic possession estimate
       const possessions = (game.home_score + game.away_score) / 2;
 
-      if (!possessions || possessions <= 0) continue;
+      if (!possessions || possessions <= 0) {
+        await supabase
+          .from("games")
+          .update({ ratings_processed: true })
+          .eq("id", game.id);
+        continue;
+      }
 
       const homeOff = (game.home_score / possessions) * 100;
       const homeDef = (game.away_score / possessions) * 100;
-
       const awayOff = (game.away_score / possessions) * 100;
       const awayDef = (game.home_score / possessions) * 100;
 
@@ -77,7 +93,6 @@ export async function GET() {
       const marginMultiplier = Math.log(Math.abs(pointDiff) + 1);
 
       let scaledAlpha = ALPHA * marginMultiplier;
-
       if (scaledAlpha > MAX_ALPHA) scaledAlpha = MAX_ALPHA;
       if (scaledAlpha < MIN_ALPHA) scaledAlpha = MIN_ALPHA;
 
@@ -99,7 +114,6 @@ export async function GET() {
       const newAwayPace =
         ALPHA * possessions + (1 - ALPHA) * away.pace;
 
-      // Update teams in parallel
       await Promise.all([
         supabase.from("teams").update({
           off_rating: newHomeOff,
@@ -121,13 +135,13 @@ export async function GET() {
       processedCount++;
     }
 
-    // Count remaining COMPLETED unprocessed games
-const { count } = await supabase
-  .from("games")
-  .select("*", { count: "exact", head: true })
-  .eq("ratings_processed", false)
-  .gt("home_score", 0)
-  .gt("away_score", 0);
+    // Count remaining completed games
+    const { count } = await supabase
+      .from("games")
+      .select("*", { count: "exact", head: true })
+      .eq("ratings_processed", false)
+      .gt("home_score", 0)
+      .gt("away_score", 0);
 
     return Response.json({
       message: "Batch processed successfully",
