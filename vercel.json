@@ -1,7 +1,27 @@
 {
-  "cron": [
-    { "path": "/api/process-games", "schedule": "*/10 * * * *" },
-    { "path": "/api/update-player-status", "schedule": "*/10 * * * *" },
-    { "path": "/api/update-player-impact", "schedule": "0 4 * * *" }
+  "functions": {
+    "app/api/process-games/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/update-player-status/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/update-player-impact/route.ts": {
+      "maxDuration": 60
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/process-games",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/update-player-status",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/update-player-impact",
+      "schedule": "0 4 * * *"
+    }
   ]
 }
