@@ -2,7 +2,6 @@ export const dynamic = "force-dynamic";
 
 import { createClient } from "@supabase/supabase-js";
 
-// 🔎 Validate environment variables early
 if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
   throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
 }
@@ -16,8 +15,8 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-const HOME_ADVANTAGE = 3; // points
-const K_FACTOR = 0.12; // logistic sensitivity
+const HOME_ADVANTAGE = 3;
+const K_FACTOR = 0.12;
 const EFF_WEIGHT = 0.65;
 const ELO_WEIGHT = 0.35;
 
@@ -27,47 +26,27 @@ function logistic(x: number) {
 
 function confidenceTier(prob: number) {
   if (prob >= 0.65) return "STRONG";
-  if (prob >= 0.6) return "HIGH";
+  if (prob >= 0.60) return "HIGH";
   if (prob >= 0.55) return "MEDIUM";
   return "LOW";
 }
 
 export async function GET() {
   try {
-    // 🔥 PAGINATED FETCH (bypasses Supabase 1000 row limit)
-    let allGames: any[] = [];
-    let from = 0;
-    const pageSize = 1000;
+    // 🔥 Pull ONLY today's games (including future unplayed)
+    const { data: games, error } = await supabase
+      .from("games")
+      .select("*")
+      .gte("game_date", new Date().toISOString().split("T")[0])
+      .lt("game_date", new Date(Date.now() + 86400000).toISOString().split("T")[0]);
 
-    while (true) {
-      const { data, error } = await supabase
-        .from("games")
-        .select("*")
-        .not("home_score", "is", null)
-        .not("away_score", "is", null)
-        .gt("home_score", 0)
-        .gt("away_score", 0)
-        .order("game_date", { ascending: true })
-        .range(from, from + pageSize - 1);
-
-      if (error) {
-        return Response.json({ error: error.message }, { status: 500 });
-      }
-
-      if (!data || data.length === 0) break;
-
-      allGames = allGames.concat(data);
-
-      if (data.length < pageSize) break;
-
-      from += pageSize;
+    if (error) {
+      return Response.json({ error: error.message }, { status: 500 });
     }
 
-    const games = allGames;
-
-    if (games.length === 0) {
+    if (!games || games.length === 0) {
       return Response.json({
-        message: "No completed games found",
+        message: "No games found for today",
         totalBuilt: 0
       });
     }
@@ -75,24 +54,24 @@ export async function GET() {
     let totalBuilt = 0;
 
     for (const game of games) {
-      // 🔹 Pull pre-game efficiency ratings
-      const { data: ratings, error: ratingsError } = await supabase
-        .from("team_ratings_history")
+      // Pull latest team ratings snapshot
+      const { data: homeTeam } = await supabase
+        .from("teams")
         .select("*")
-        .eq("game_id", game.id);
+        .eq("name", game.home_team)
+        .single();
 
-      if (ratingsError) continue;
-      if (!ratings || ratings.length < 2) continue;
+      const { data: awayTeam } = await supabase
+        .from("teams")
+        .select("*")
+        .eq("name", game.away_team)
+        .single();
 
-      const homeEff = ratings.find(r => r.team === game.home_team);
-      const awayEff = ratings.find(r => r.team === game.away_team);
+      if (!homeTeam || !awayTeam) continue;
 
-      if (!homeEff || !awayEff) continue;
+      const homeEffNet = homeTeam.off_rating - homeTeam.def_rating;
+      const awayEffNet = awayTeam.off_rating - awayTeam.def_rating;
 
-      const homeEffNet = homeEff.off_rating - homeEff.def_rating;
-      const awayEffNet = awayEff.off_rating - awayEff.def_rating;
-
-      // 🔹 Pull latest ELO ratings
       const { data: eloRows } = await supabase
         .from("elo_ratings")
         .select("*")
@@ -106,7 +85,6 @@ export async function GET() {
 
       const eloGap = (homeElo - awayElo) / 25;
 
-      // 🔹 Combine efficiency + ELO
       const efficiencyGap =
         homeEffNet - awayEffNet + HOME_ADVANTAGE;
 
@@ -119,14 +97,7 @@ export async function GET() {
       const predictedWinner =
         homeWinProb >= 0.5 ? game.home_team : game.away_team;
 
-      const actualWinner =
-        game.home_score > game.away_score
-          ? game.home_team
-          : game.away_team;
-
-      const correct = predictedWinner === actualWinner;
-
-      const { error: upsertError } = await supabase
+      await supabase
         .from("predictions")
         .upsert(
           {
@@ -138,18 +109,16 @@ export async function GET() {
             home_win_probability: homeWinProb,
             rating_gap: finalGap,
             confidence_tier: confidenceTier(homeWinProb),
-            correct_prediction: correct
+            correct_prediction: null
           },
           { onConflict: "game_id" }
         );
-
-      if (upsertError) continue;
 
       totalBuilt++;
     }
 
     return Response.json({
-      message: "Predictions built successfully",
+      message: "Today's predictions built successfully",
       totalBuilt
     });
 
