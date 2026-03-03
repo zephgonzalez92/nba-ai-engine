@@ -2,18 +2,13 @@ export const dynamic = "force-dynamic";
 
 import { createClient } from "@supabase/supabase-js";
 
-if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
-  throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
-}
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
-if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-  throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY");
-}
+if (!supabaseUrl) throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
+if (!serviceRoleKey) throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY");
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+const supabase = createClient(supabaseUrl, serviceRoleKey);
 
 const HOME_ADVANTAGE = 3;
 const K_FACTOR = 0.12;
@@ -35,7 +30,6 @@ export async function GET() {
   try {
     const today = new Date().toISOString().split("T")[0];
 
-    // Pull today's games
     const { data: games, error } = await supabase
       .from("games")
       .select("*")
@@ -54,9 +48,8 @@ export async function GET() {
 
     let totalBuilt = 0;
 
-    for (const game of games) {
+    for (const game of games as any[]) {
 
-      // Pull team ratings
       const { data: homeTeam } = await supabase
         .from("teams")
         .select("*")
@@ -71,27 +64,28 @@ export async function GET() {
 
       if (!homeTeam || !awayTeam) continue;
 
-      const homeEffNet = homeTeam.off_rating - homeTeam.def_rating;
-      const awayEffNet = awayTeam.off_rating - awayTeam.def_rating;
+      const homeEffNet =
+        Number(homeTeam.off_rating) - Number(homeTeam.def_rating);
 
-      // Pull ELO
+      const awayEffNet =
+        Number(awayTeam.off_rating) - Number(awayTeam.def_rating);
+
       const { data: eloRows } = await supabase
         .from("elo_ratings")
         .select("*")
         .in("team", [game.home_team, game.away_team]);
 
       const homeElo =
-        eloRows?.find(e => e.team === game.home_team)?.elo ?? 1500;
+        (eloRows as any[])?.find((e: any) => e.team === game.home_team)?.elo ?? 1500;
 
       const awayElo =
-        eloRows?.find(e => e.team === game.away_team)?.elo ?? 1500;
+        (eloRows as any[])?.find((e: any) => e.team === game.away_team)?.elo ?? 1500;
 
-      const eloGap = (homeElo - awayElo) / 25;
+      const eloGap = (Number(homeElo) - Number(awayElo)) / 25;
 
       const efficiencyGap =
         homeEffNet - awayEffNet + HOME_ADVANTAGE;
 
-      // 🔥 Injury Adjustment
       let homeImpact = 0;
       let awayImpact = 0;
 
@@ -103,14 +97,16 @@ export async function GET() {
         .eq("status", "Out");
 
       if (missingHome) {
-        for (const player of missingHome) {
+        for (const player of missingHome as any[]) {
           const { data: impact } = await supabase
             .from("player_impact")
             .select("impact_score")
             .eq("player_id", player.player_id)
             .single();
 
-          if (impact) homeImpact += Number(impact.impact_score);
+          if (impact?.impact_score) {
+            homeImpact += Number(impact.impact_score);
+          }
         }
       }
 
@@ -122,14 +118,16 @@ export async function GET() {
         .eq("status", "Out");
 
       if (missingAway) {
-        for (const player of missingAway) {
+        for (const player of missingAway as any[]) {
           const { data: impact } = await supabase
             .from("player_impact")
             .select("impact_score")
             .eq("player_id", player.player_id)
             .single();
 
-          if (impact) awayImpact += Number(impact.impact_score);
+          if (impact?.impact_score) {
+            awayImpact += Number(impact.impact_score);
+          }
         }
       }
 
