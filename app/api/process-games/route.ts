@@ -22,18 +22,19 @@ const BATCH_SIZE = 300;
 
 export async function GET() {
   try {
-    console.log("LIVE SUPABASE URL:", process.env.NEXT_PUBLIC_SUPABASE_URL);
     let processedCount = 0;
 
-    // Always fetch FIRST batch of unprocessed completed games
-    const { data: games, error } = await supabase
+    const baseQuery = supabase
       .from("games")
       .select("*")
       .eq("ratings_processed", false)
+      .not("home_score", "is", null)
+      .not("away_score", "is", null)
       .gt("home_score", 0)
       .gt("away_score", 0)
-      .order("game_date", { ascending: true })
-      .limit(BATCH_SIZE);
+      .order("game_date", { ascending: true });
+
+    const { data: games, error } = await baseQuery.limit(BATCH_SIZE);
 
     if (error) {
       return Response.json({ error: error.message }, { status: 500 });
@@ -48,42 +49,19 @@ export async function GET() {
     }
 
     for (const game of games) {
-
-      // Pull both teams
-      const { data: teams, error: teamError } = await supabase
+      const { data: teams } = await supabase
         .from("teams")
         .select("*")
         .in("name", [game.home_team, game.away_team]);
 
-      // If team lookup fails → mark processed to prevent infinite loop
-      if (teamError || !teams || teams.length < 2) {
-        await supabase
-          .from("games")
-          .update({ ratings_processed: true })
-          .eq("id", game.id);
-        continue;
-      }
+      if (!teams || teams.length < 2) continue;
 
       const home = teams.find(t => t.name === game.home_team);
       const away = teams.find(t => t.name === game.away_team);
-
-      if (!home || !away) {
-        await supabase
-          .from("games")
-          .update({ ratings_processed: true })
-          .eq("id", game.id);
-        continue;
-      }
+      if (!home || !away) continue;
 
       const possessions = (game.home_score + game.away_score) / 2;
-
-      if (!possessions || possessions <= 0) {
-        await supabase
-          .from("games")
-          .update({ ratings_processed: true })
-          .eq("id", game.id);
-        continue;
-      }
+      if (!possessions || possessions <= 0) continue;
 
       const homeOff = (game.home_score / possessions) * 100;
       const homeDef = (game.away_score / possessions) * 100;
@@ -136,13 +114,10 @@ export async function GET() {
       processedCount++;
     }
 
-    // Count remaining completed games
-    const { count } = await supabase
-      .from("games")
-      .select("*", { count: "exact", head: true })
-      .eq("ratings_processed", false)
-      .gt("home_score", 0)
-      .gt("away_score", 0);
+    const { count } = await baseQuery.select("*", {
+      count: "exact",
+      head: true
+    });
 
     return Response.json({
       message: "Batch processed successfully",
