@@ -88,6 +88,57 @@ export async function GET() {
       const efficiencyGap =
         homeEffNet - awayEffNet + HOME_ADVANTAGE;
 
+      const today = new Date().toISOString().split("T")[0];
+
+const { data: missingHome } = await supabase
+  .from("player_status")
+  .select("player_id")
+  .eq("team", game.home_team)
+  .eq("game_date", today)
+  .eq("status", "Out");
+
+let homeImpact = 0;
+
+if (missingHome) {
+  for (const player of missingHome) {
+    const { data: impact } = await supabase
+      .from("player_impact")
+      .select("impact_score")
+      .eq("player_id", player.player_id)
+      .single();
+
+    if (impact) homeImpact += impact.impact_score;
+  }
+}
+
+const { data: missingAway } = await supabase
+  .from("player_status")
+  .select("player_id")
+  .eq("team", game.away_team)
+  .eq("game_date", today)
+  .eq("status", "Out");
+
+let awayImpact = 0;
+
+if (missingAway) {
+  for (const player of missingAway) {
+    const { data: impact } = await supabase
+      .from("player_impact")
+      .select("impact_score")
+      .eq("player_id", player.player_id)
+      .single();
+
+    if (impact) awayImpact += impact.impact_score;
+  }
+}
+
+const injuryAdjustment = homeImpact - awayImpact;
+
+const finalGap =
+  EFF_WEIGHT * efficiencyGap +
+  ELO_WEIGHT * eloGap -
+  injuryAdjustment;
+      
       const finalGap =
         EFF_WEIGHT * efficiencyGap +
         ELO_WEIGHT * eloGap;
