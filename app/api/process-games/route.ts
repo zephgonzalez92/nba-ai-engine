@@ -121,12 +121,13 @@ export async function GET() {
       processedCount++;
     }
 
-    // Count remaining
-    const { count } = await supabase
-      .from("games")
-      .select("*", { count: "exact", head: true })
-      .eq("ratings_processed", false)
-      .not("home_score", "is", null);
+    // Count remaining COMPLETED unprocessed games
+const { count } = await supabase
+  .from("games")
+  .select("*", { count: "exact", head: true })
+  .eq("ratings_processed", false)
+  .gt("home_score", 0)
+  .gt("away_score", 0);
 
     return Response.json({
       message: "Batch processed successfully",
