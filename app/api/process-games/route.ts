@@ -7,16 +7,15 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-const ALPHA = 0.2;
-const MAX_ALPHA = 0.35;
-const MIN_ALPHA = 0.05;
 const BATCH_SIZE = 300;
 
 export async function GET() {
   try {
+
+    const debug: any[] = [];
     let processedCount = 0;
 
-    const { data: games, error } = await supabase
+    const { data: games } = await supabase
       .from("games")
       .select("*")
       .eq("ratings_processed", false)
@@ -26,10 +25,6 @@ export async function GET() {
       .gt("away_score", 0)
       .order("game_date", { ascending: true })
       .limit(BATCH_SIZE);
-
-    if (error) {
-      return Response.json({ error: error.message }, { status: 500 });
-    }
 
     if (!games || games.length === 0) {
       return Response.json({
@@ -43,106 +38,24 @@ export async function GET() {
 
       const gameId = Number(game.id);
 
-      if (!gameId) {
-        console.log("INVALID GAME ID:", game.id);
-        continue;
-      }
-
-      const { data: teams, error: teamError } = await supabase
+      const { data: teams } = await supabase
         .from("teams")
         .select("*")
         .in("name", [game.home_team, game.away_team]);
 
-      if (teamError || !teams || teams.length < 2) {
-        console.log("TEAM ERROR:", gameId);
+      if (!teams || teams.length < 2) {
+        debug.push({ gameId, reason: "TEAM_NOT_FOUND" });
         continue;
       }
 
-      const home = teams.find(t => t.name === game.home_team);
-      const away = teams.find(t => t.name === game.away_team);
-
-      if (!home || !away) {
-        console.log("TEAM FIND FAIL:", gameId);
-        continue;
-      }
-
-      const possessions = (game.home_score + game.away_score) / 2;
-      if (!possessions || possessions <= 0) {
-        console.log("BAD POSSESSIONS:", gameId);
-        continue;
-      }
-
-      const homeOff = (game.home_score / possessions) * 100;
-      const homeDef = (game.away_score / possessions) * 100;
-      const awayOff = (game.away_score / possessions) * 100;
-      const awayDef = (game.home_score / possessions) * 100;
-
-      const pointDiff = game.home_score - game.away_score;
-      const marginMultiplier = Math.log(Math.abs(pointDiff) + 1);
-
-      let scaledAlpha = ALPHA * marginMultiplier;
-      if (scaledAlpha > MAX_ALPHA) scaledAlpha = MAX_ALPHA;
-      if (scaledAlpha < MIN_ALPHA) scaledAlpha = MIN_ALPHA;
-
-      const newHomeOff =
-        scaledAlpha * homeOff + (1 - scaledAlpha) * Number(home.off_rating ?? 100);
-
-      const newHomeDef =
-        scaledAlpha * homeDef + (1 - scaledAlpha) * Number(home.def_rating ?? 100);
-
-      const newHomePace =
-        ALPHA * possessions + (1 - ALPHA) * Number(home.pace ?? 100);
-
-      const newAwayOff =
-        scaledAlpha * awayOff + (1 - scaledAlpha) * Number(away.off_rating ?? 100);
-
-      const newAwayDef =
-        scaledAlpha * awayDef + (1 - scaledAlpha) * Number(away.def_rating ?? 100);
-
-      const newAwayPace =
-        ALPHA * possessions + (1 - ALPHA) * Number(away.pace ?? 100);
-
-      const { error: homeUpdateError } = await supabase
-        .from("teams")
-        .update({
-          off_rating: newHomeOff,
-          def_rating: newHomeDef,
-          pace: newHomePace
-        })
-        .eq("name", game.home_team);
-
-      if (homeUpdateError) {
-        console.log("HOME UPDATE ERROR:", gameId);
-        continue;
-      }
-
-      const { error: awayUpdateError } = await supabase
-        .from("teams")
-        .update({
-          off_rating: newAwayOff,
-          def_rating: newAwayDef,
-          pace: newAwayPace
-        })
-        .eq("name", game.away_team);
-
-      if (awayUpdateError) {
-        console.log("AWAY UPDATE ERROR:", gameId);
-        continue;
-      }
-
-      const { data: updated, error: gameUpdateError } = await supabase
+      const { data: updated } = await supabase
         .from("games")
         .update({ ratings_processed: true })
         .eq("id", gameId)
         .select("id");
 
-      if (gameUpdateError) {
-        console.log("GAME UPDATE ERROR:", gameId);
-        continue;
-      }
-
       if (!updated || updated.length === 0) {
-        console.log("NO MATCH FOR ID:", gameId);
+        debug.push({ gameId, reason: "UPDATE_FAILED" });
         continue;
       }
 
@@ -159,9 +72,10 @@ export async function GET() {
       .gt("away_score", 0);
 
     return Response.json({
-      message: "Batch processed successfully",
+      message: "Diagnostic run complete",
       processedCount,
-      remainingGames: count ?? 0
+      remainingGames: count ?? 0,
+      skipped: debug.slice(0, 20)
     });
 
   } catch (err: any) {
