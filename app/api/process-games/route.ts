@@ -11,8 +11,8 @@ if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
 }
 
 const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
 const ALPHA = 0.2;
@@ -24,7 +24,8 @@ export async function GET() {
   try {
     let processedCount = 0;
 
-    const baseQuery = supabase
+    // Fetch first batch
+    const { data: games, error } = await supabase
       .from("games")
       .select("*")
       .eq("ratings_processed", false)
@@ -32,9 +33,8 @@ export async function GET() {
       .not("away_score", "is", null)
       .gt("home_score", 0)
       .gt("away_score", 0)
-      .order("game_date", { ascending: true });
-
-    const { data: games, error } = await baseQuery.limit(BATCH_SIZE);
+      .order("game_date", { ascending: true })
+      .limit(BATCH_SIZE);
 
     if (error) {
       return Response.json({ error: error.message }, { status: 500 });
@@ -94,19 +94,26 @@ export async function GET() {
         ALPHA * possessions + (1 - ALPHA) * away.pace;
 
       await Promise.all([
-        supabase.from("teams").update({
-          off_rating: newHomeOff,
-          def_rating: newHomeDef,
-          pace: newHomePace
-        }).eq("name", game.home_team),
+        supabase
+          .from("teams")
+          .update({
+            off_rating: newHomeOff,
+            def_rating: newHomeDef,
+            pace: newHomePace
+          })
+          .eq("name", game.home_team),
 
-        supabase.from("teams").update({
-          off_rating: newAwayOff,
-          def_rating: newAwayDef,
-          pace: newAwayPace
-        }).eq("name", game.away_team),
+        supabase
+          .from("teams")
+          .update({
+            off_rating: newAwayOff,
+            def_rating: newAwayDef,
+            pace: newAwayPace
+          })
+          .eq("name", game.away_team),
 
-        supabase.from("games")
+        supabase
+          .from("games")
           .update({ ratings_processed: true })
           .eq("id", game.id)
       ]);
@@ -114,10 +121,15 @@ export async function GET() {
       processedCount++;
     }
 
-    const { count } = await baseQuery.select("*", {
-      count: "exact",
-      head: true
-    });
+    // Fresh count query (do NOT reuse baseQuery)
+    const { count } = await supabase
+      .from("games")
+      .select("*", { count: "exact", head: true })
+      .eq("ratings_processed", false)
+      .not("home_score", "is", null)
+      .not("away_score", "is", null)
+      .gt("home_score", 0)
+      .gt("away_score", 0);
 
     return Response.json({
       message: "Batch processed successfully",
