@@ -17,7 +17,7 @@ const supabase = createClient(
 );
 
 const HOME_ADVANTAGE = 3; // points
-const K_FACTOR = 0.12;    // logistic sensitivity
+const K_FACTOR = 0.12; // logistic sensitivity
 const EFF_WEIGHT = 0.65;
 const ELO_WEIGHT = 0.35;
 
@@ -27,7 +27,7 @@ function logistic(x: number) {
 
 function confidenceTier(prob: number) {
   if (prob >= 0.65) return "STRONG";
-  if (prob >= 0.60) return "HIGH";
+  if (prob >= 0.6) return "HIGH";
   if (prob >= 0.55) return "MEDIUM";
   return "LOW";
 }
@@ -65,7 +65,7 @@ export async function GET() {
 
     const games = allGames;
 
-    if (!games || games.length === 0) {
+    if (games.length === 0) {
       return Response.json({
         message: "No completed games found",
         totalBuilt: 0
@@ -75,7 +75,7 @@ export async function GET() {
     let totalBuilt = 0;
 
     for (const game of games) {
-      // Pull pre-game efficiency ratings
+      // 🔹 Pull pre-game efficiency ratings
       const { data: ratings, error: ratingsError } = await supabase
         .from("team_ratings_history")
         .select("*")
@@ -92,7 +92,7 @@ export async function GET() {
       const homeEffNet = homeEff.off_rating - homeEff.def_rating;
       const awayEffNet = awayEff.off_rating - awayEff.def_rating;
 
-      // Pull latest ELO ratings
+      // 🔹 Pull latest ELO ratings
       const { data: eloRows } = await supabase
         .from("elo_ratings")
         .select("*")
@@ -106,7 +106,7 @@ export async function GET() {
 
       const eloGap = (homeElo - awayElo) / 25;
 
-      // Combine efficiency + ELO
+      // 🔹 Combine efficiency + ELO
       const efficiencyGap =
         homeEffNet - awayEffNet + HOME_ADVANTAGE;
 
@@ -126,7 +126,7 @@ export async function GET() {
 
       const correct = predictedWinner === actualWinner;
 
-      await supabase
+      const { error: upsertError } = await supabase
         .from("predictions")
         .upsert(
           {
@@ -142,6 +142,8 @@ export async function GET() {
           },
           { onConflict: "game_id" }
         );
+
+      if (upsertError) continue;
 
       totalBuilt++;
     }
