@@ -49,18 +49,17 @@ export async function GET() {
 
     for (const game of games) {
 
-      const gameId = Number(game.id); // 🔥 force numeric safety
+      // 🔥 DO NOT CAST BIGINT
+      const gameId = game.id; // keep as returned
 
-      // ===== FETCH TEAMS =====
       const { data: teams, error: teamError } = await supabase
         .from("teams")
         .select("*")
         .in("name", [game.home_team, game.away_team]);
 
       if (teamError || !teams || teams.length < 2) {
-        console.log("TEAM ISSUE:", gameId, game.home_team, game.away_team);
+        console.log("TEAM ISSUE:", gameId);
 
-        // Mark processed to prevent infinite loop
         await supabase
           .from("games")
           .update({ ratings_processed: true })
@@ -133,8 +132,7 @@ export async function GET() {
       const newAwayPace =
         ALPHA * possessions + (1 - ALPHA) * awayPace;
 
-      // ===== UPDATE HOME TEAM =====
-      const { error: homeUpdateError } = await supabase
+      await supabase
         .from("teams")
         .update({
           off_rating: newHomeOff,
@@ -143,13 +141,7 @@ export async function GET() {
         })
         .eq("name", game.home_team);
 
-      if (homeUpdateError) {
-        console.log("HOME UPDATE ERROR:", gameId, homeUpdateError.message);
-        continue;
-      }
-
-      // ===== UPDATE AWAY TEAM =====
-      const { error: awayUpdateError } = await supabase
+      await supabase
         .from("teams")
         .update({
           off_rating: newAwayOff,
@@ -158,26 +150,14 @@ export async function GET() {
         })
         .eq("name", game.away_team);
 
-      if (awayUpdateError) {
-        console.log("AWAY UPDATE ERROR:", gameId, awayUpdateError.message);
-        continue;
-      }
+      const { data: updated } = await supabase
+        .from("games")
+        .update({ ratings_processed: true })
+        .eq("id", gameId)
+        .select("id");
 
-      // ===== VERIFY GAME UPDATE =====
-      const { data: updateResult, error: gameUpdateError } =
-        await supabase
-          .from("games")
-          .update({ ratings_processed: true })
-          .eq("id", gameId)
-          .select("id");
-
-      if (gameUpdateError) {
-        console.log("GAME UPDATE ERROR:", gameId, gameUpdateError.message);
-        continue;
-      }
-
-      if (!updateResult || updateResult.length === 0) {
-        console.log("⚠️ NO ROW UPDATED FOR GAME:", gameId);
+      if (!updated || updated.length === 0) {
+        console.log("⚠️ FAILED TO UPDATE GAME:", gameId);
         continue;
       }
 
