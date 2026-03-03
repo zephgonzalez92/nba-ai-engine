@@ -30,13 +30,13 @@ export async function GET() {
   try {
     const today = new Date().toISOString().split("T")[0];
 
-    const { data: games, error } = await supabase
+    const { data: games, error: gamesError } = await supabase
       .from("games")
       .select("*")
       .eq("game_date", today);
 
-    if (error) {
-      return Response.json({ error: error.message }, { status: 500 });
+    if (gamesError) {
+      return Response.json({ error: gamesError.message }, { status: 500 });
     }
 
     if (!games || games.length === 0) {
@@ -50,42 +50,53 @@ export async function GET() {
 
     for (const game of games as any[]) {
 
-      const { data: homeTeam } = await supabase
+      // ===== Fetch Teams =====
+      const { data: homeTeam, error: homeErr } = await supabase
         .from("teams")
         .select("*")
         .eq("name", game.home_team)
         .single();
 
-      const { data: awayTeam } = await supabase
+      const { data: awayTeam, error: awayErr } = await supabase
         .from("teams")
         .select("*")
         .eq("name", game.away_team)
         .single();
 
-      if (!homeTeam || !awayTeam) continue;
+      if (homeErr || awayErr || !homeTeam || !awayTeam) {
+        console.log("TEAM FETCH ERROR:", homeErr?.message, awayErr?.message);
+        continue;
+      }
 
-      const homeEffNet =
-        Number(homeTeam.off_rating) - Number(homeTeam.def_rating);
+      const homeOff = Number(homeTeam.off_rating ?? 0);
+      const homeDef = Number(homeTeam.def_rating ?? 0);
+      const awayOff = Number(awayTeam.off_rating ?? 0);
+      const awayDef = Number(awayTeam.def_rating ?? 0);
 
-      const awayEffNet =
-        Number(awayTeam.off_rating) - Number(awayTeam.def_rating);
+      const homeEffNet = homeOff - homeDef;
+      const awayEffNet = awayOff - awayDef;
 
-      const { data: eloRows } = await supabase
+      // ===== Fetch Elo =====
+      const { data: eloRows, error: eloError } = await supabase
         .from("elo_ratings")
         .select("*")
         .in("team", [game.home_team, game.away_team]);
 
+      if (eloError) {
+        console.log("ELO FETCH ERROR:", eloError.message);
+        continue;
+      }
+
       const homeElo =
-        (eloRows as any[])?.find((e: any) => e.team === game.home_team)?.elo ?? 1500;
+        (eloRows as any[])?.find(e => e.team === game.home_team)?.elo ?? 1500;
 
       const awayElo =
-        (eloRows as any[])?.find((e: any) => e.team === game.away_team)?.elo ?? 1500;
+        (eloRows as any[])?.find(e => e.team === game.away_team)?.elo ?? 1500;
 
       const eloGap = (Number(homeElo) - Number(awayElo)) / 25;
+      const efficiencyGap = homeEffNet - awayEffNet + HOME_ADVANTAGE;
 
-      const efficiencyGap =
-        homeEffNet - awayEffNet + HOME_ADVANTAGE;
-
+      // ===== Injury Impact =====
       let homeImpact = 0;
       let awayImpact = 0;
 
@@ -96,13 +107,13 @@ export async function GET() {
         .eq("game_date", today)
         .eq("status", "Out");
 
-      if (missingHome) {
+      if (missingHome?.length) {
         for (const player of missingHome as any[]) {
           const { data: impact } = await supabase
             .from("player_impact")
             .select("impact_score")
             .eq("player_id", player.player_id)
-            .single();
+            .maybeSingle();
 
           if (impact?.impact_score) {
             homeImpact += Number(impact.impact_score);
@@ -117,13 +128,13 @@ export async function GET() {
         .eq("game_date", today)
         .eq("status", "Out");
 
-      if (missingAway) {
+      if (missingAway?.length) {
         for (const player of missingAway as any[]) {
           const { data: impact } = await supabase
             .from("player_impact")
             .select("impact_score")
             .eq("player_id", player.player_id)
-            .single();
+            .maybeSingle();
 
           if (impact?.impact_score) {
             awayImpact += Number(impact.impact_score);
@@ -133,6 +144,7 @@ export async function GET() {
 
       const injuryAdjustment = homeImpact - awayImpact;
 
+      // ===== Final Model =====
       const finalGap =
         EFF_WEIGHT * efficiencyGap +
         ELO_WEIGHT * eloGap -
@@ -143,7 +155,8 @@ export async function GET() {
       const predictedWinner =
         homeWinProb >= 0.5 ? game.home_team : game.away_team;
 
-      await supabase
+      // ===== Upsert Prediction =====
+      const { error: upsertError } = await supabase
         .from("predictions")
         .upsert(
           {
@@ -159,6 +172,11 @@ export async function GET() {
           },
           { onConflict: "game_id" }
         );
+
+      if (upsertError) {
+        console.log("UPSERT ERROR:", upsertError.message);
+        continue;
+      }
 
       totalBuilt++;
     }
