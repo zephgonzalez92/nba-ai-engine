@@ -14,6 +14,9 @@ const BATCH_SIZE = 300;
 
 export async function GET() {
   try {
+
+    console.log("SUPABASE URL:", process.env.NEXT_PUBLIC_SUPABASE_URL);
+
     let processedCount = 0;
 
     const { data: games, error } = await supabase
