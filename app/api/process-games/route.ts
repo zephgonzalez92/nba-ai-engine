@@ -24,6 +24,7 @@ export async function GET() {
   try {
     let processedCount = 0;
 
+    // 🔹 Fetch ONLY valid games for rating calculation
     const { data: games, error } = await supabase
       .from("games")
       .select("*")
@@ -41,25 +42,22 @@ export async function GET() {
 
     if (!games || games.length === 0) {
       return Response.json({
-        message: "No unprocessed games remaining",
+        message: "No valid unprocessed games remaining",
         processedCount: 0,
         remainingGames: 0
       });
     }
 
     for (const game of games) {
+      const gameId = game.id; // keep bigint as-is
 
-      // 🔥 DO NOT CAST BIGINT
-      const gameId = game.id; // keep as returned
-
-      const { data: teams, error: teamError } = await supabase
+      const { data: teams } = await supabase
         .from("teams")
         .select("*")
         .in("name", [game.home_team, game.away_team]);
 
-      if (teamError || !teams || teams.length < 2) {
-        console.log("TEAM ISSUE:", gameId);
-
+      if (!teams || teams.length < 2) {
+        // Mark invalid rows as processed so they don’t loop forever
         await supabase
           .from("games")
           .update({ ratings_processed: true })
@@ -72,8 +70,6 @@ export async function GET() {
       const away = teams.find(t => t.name === game.away_team);
 
       if (!home || !away) {
-        console.log("TEAM FIND FAIL:", gameId);
-
         await supabase
           .from("games")
           .update({ ratings_processed: true })
@@ -84,8 +80,6 @@ export async function GET() {
 
       const possessions = (game.home_score + game.away_score) / 2;
       if (!possessions || possessions <= 0) {
-        console.log("INVALID POSSESSIONS:", gameId);
-
         await supabase
           .from("games")
           .update({ ratings_processed: true })
@@ -150,28 +144,19 @@ export async function GET() {
         })
         .eq("name", game.away_team);
 
-      const { data: updated } = await supabase
+      await supabase
         .from("games")
         .update({ ratings_processed: true })
-        .eq("id", gameId)
-        .select("id");
-
-      if (!updated || updated.length === 0) {
-        console.log("⚠️ FAILED TO UPDATE GAME:", gameId);
-        continue;
-      }
+        .eq("id", gameId);
 
       processedCount++;
     }
 
+    // 🔹 Count ALL remaining unprocessed games (truthful count)
     const { count } = await supabase
       .from("games")
       .select("*", { count: "exact", head: true })
-      .eq("ratings_processed", false)
-      .not("home_score", "is", null)
-      .not("away_score", "is", null)
-      .gt("home_score", 0)
-      .gt("away_score", 0);
+      .eq("ratings_processed", false);
 
     return Response.json({
       message: "Batch processed successfully",
