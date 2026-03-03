@@ -10,12 +10,23 @@ const supabase = createClient(
 export async function GET() {
   try {
 
-    // fetch games from external API here
-    const externalGames = await fetchExternalGames(); // your existing fetch logic
+    // 🔥 Replace with your real external API endpoint
+    const response = await fetch("https://your-external-api.com/games");
+
+    if (!response.ok) {
+      throw new Error("Failed to fetch external games");
+    }
+
+    const externalGames = await response.json();
+
+    if (!Array.isArray(externalGames)) {
+      throw new Error("Invalid external games format");
+    }
+
+    let syncedCount = 0;
 
     for (const game of externalGames) {
 
-      // 🔒 DO NOT INCLUDE ratings_processed
       await supabase
         .from("games")
         .upsert(
@@ -32,9 +43,13 @@ export async function GET() {
           }
         );
 
+      syncedCount++;
     }
 
-    return Response.json({ success: true });
+    return Response.json({
+      success: true,
+      syncedCount
+    });
 
   } catch (err: any) {
     return Response.json(
