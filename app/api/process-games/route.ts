@@ -22,6 +22,7 @@ const BATCH_SIZE = 300;
 
 export async function GET() {
   try {
+    console.log("LIVE SUPABASE URL:", process.env.NEXT_PUBLIC_SUPABASE_URL);
     let processedCount = 0;
 
     // Always fetch FIRST batch of unprocessed completed games
