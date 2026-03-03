@@ -2,14 +2,6 @@ export const dynamic = "force-dynamic";
 
 import { createClient } from "@supabase/supabase-js";
 
-if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
-  throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
-}
-
-if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-  throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY");
-}
-
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -49,7 +41,6 @@ export async function GET() {
 
     for (const game of games) {
 
-      // 🔥 FORCE bigint cast
       const gameId = Number(game.id);
 
       if (!gameId) {
@@ -57,13 +48,13 @@ export async function GET() {
         continue;
       }
 
-      const { data: teams } = await supabase
+      const { data: teams, error: teamError } = await supabase
         .from("teams")
         .select("*")
         .in("name", [game.home_team, game.away_team]);
 
-      if (!teams || teams.length < 2) {
-        console.log("TEAM ISSUE:", gameId);
+      if (teamError || !teams || teams.length < 2) {
+        console.log("TEAM ERROR:", gameId);
         continue;
       }
 
@@ -76,7 +67,10 @@ export async function GET() {
       }
 
       const possessions = (game.home_score + game.away_score) / 2;
-      if (!possessions || possessions <= 0) continue;
+      if (!possessions || possessions <= 0) {
+        console.log("BAD POSSESSIONS:", gameId);
+        continue;
+      }
 
       const homeOff = (game.home_score / possessions) * 100;
       const homeDef = (game.away_score / possessions) * 100;
@@ -108,7 +102,7 @@ export async function GET() {
       const newAwayPace =
         ALPHA * possessions + (1 - ALPHA) * Number(away.pace ?? 100);
 
-      await supabase
+      const { error: homeUpdateError } = await supabase
         .from("teams")
         .update({
           off_rating: newHomeOff,
@@ -117,7 +111,12 @@ export async function GET() {
         })
         .eq("name", game.home_team);
 
-      await supabase
+      if (homeUpdateError) {
+        console.log("HOME UPDATE ERROR:", gameId);
+        continue;
+      }
+
+      const { error: awayUpdateError } = await supabase
         .from("teams")
         .update({
           off_rating: newAwayOff,
@@ -126,20 +125,24 @@ export async function GET() {
         })
         .eq("name", game.away_team);
 
-      // 🔥 THIS IS THE CRITICAL FIX
-      const { data: updated, error: updateError } = await supabase
+      if (awayUpdateError) {
+        console.log("AWAY UPDATE ERROR:", gameId);
+        continue;
+      }
+
+      const { data: updated, error: gameUpdateError } = await supabase
         .from("games")
         .update({ ratings_processed: true })
         .eq("id", gameId)
         .select("id");
 
-      if (updateError) {
-        console.log("UPDATE ERROR:", updateError.message);
+      if (gameUpdateError) {
+        console.log("GAME UPDATE ERROR:", gameId);
         continue;
       }
 
       if (!updated || updated.length === 0) {
-        console.log("NO ROW MATCHED ID:", gameId);
+        console.log("NO MATCH FOR ID:", gameId);
         continue;
       }
 
