@@ -49,18 +49,23 @@ export async function GET() {
 
     for (const game of games) {
 
+      const gameId = Number(game.id); // 🔥 force numeric safety
+
+      // ===== FETCH TEAMS =====
       const { data: teams, error: teamError } = await supabase
         .from("teams")
         .select("*")
         .in("name", [game.home_team, game.away_team]);
 
-      if (teamError) {
-        console.log("TEAM FETCH ERROR:", teamError.message);
-        continue;
-      }
+      if (teamError || !teams || teams.length < 2) {
+        console.log("TEAM ISSUE:", gameId, game.home_team, game.away_team);
 
-      if (!teams || teams.length < 2) {
-        console.log("TEAM MISMATCH:", game.home_team, game.away_team);
+        // Mark processed to prevent infinite loop
+        await supabase
+          .from("games")
+          .update({ ratings_processed: true })
+          .eq("id", gameId);
+
         continue;
       }
 
@@ -68,12 +73,27 @@ export async function GET() {
       const away = teams.find(t => t.name === game.away_team);
 
       if (!home || !away) {
-        console.log("TEAM FIND ERROR:", game.home_team, game.away_team);
+        console.log("TEAM FIND FAIL:", gameId);
+
+        await supabase
+          .from("games")
+          .update({ ratings_processed: true })
+          .eq("id", gameId);
+
         continue;
       }
 
       const possessions = (game.home_score + game.away_score) / 2;
-      if (!possessions || possessions <= 0) continue;
+      if (!possessions || possessions <= 0) {
+        console.log("INVALID POSSESSIONS:", gameId);
+
+        await supabase
+          .from("games")
+          .update({ ratings_processed: true })
+          .eq("id", gameId);
+
+        continue;
+      }
 
       const homeOff = (game.home_score / possessions) * 100;
       const homeDef = (game.away_score / possessions) * 100;
@@ -87,7 +107,6 @@ export async function GET() {
       if (scaledAlpha > MAX_ALPHA) scaledAlpha = MAX_ALPHA;
       if (scaledAlpha < MIN_ALPHA) scaledAlpha = MIN_ALPHA;
 
-      // Protect against null ratings
       const homeOffRating = Number(home.off_rating ?? 100);
       const homeDefRating = Number(home.def_rating ?? 100);
       const homePace = Number(home.pace ?? 100);
@@ -125,7 +144,7 @@ export async function GET() {
         .eq("name", game.home_team);
 
       if (homeUpdateError) {
-        console.log("HOME UPDATE ERROR:", homeUpdateError.message);
+        console.log("HOME UPDATE ERROR:", gameId, homeUpdateError.message);
         continue;
       }
 
@@ -140,18 +159,25 @@ export async function GET() {
         .eq("name", game.away_team);
 
       if (awayUpdateError) {
-        console.log("AWAY UPDATE ERROR:", awayUpdateError.message);
+        console.log("AWAY UPDATE ERROR:", gameId, awayUpdateError.message);
         continue;
       }
 
-      // ===== MARK GAME PROCESSED =====
-      const { error: gameUpdateError } = await supabase
-        .from("games")
-        .update({ ratings_processed: true })
-        .eq("id", game.id);
+      // ===== VERIFY GAME UPDATE =====
+      const { data: updateResult, error: gameUpdateError } =
+        await supabase
+          .from("games")
+          .update({ ratings_processed: true })
+          .eq("id", gameId)
+          .select("id");
 
       if (gameUpdateError) {
-        console.log("GAME UPDATE ERROR:", gameUpdateError.message);
+        console.log("GAME UPDATE ERROR:", gameId, gameUpdateError.message);
+        continue;
+      }
+
+      if (!updateResult || updateResult.length === 0) {
+        console.log("⚠️ NO ROW UPDATED FOR GAME:", gameId);
         continue;
       }
 
