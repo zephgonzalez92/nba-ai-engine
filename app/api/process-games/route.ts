@@ -15,16 +15,13 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-const ALPHA = 0.2;
-const MAX_ALPHA = 0.35;
-const MIN_ALPHA = 0.05;
 const BATCH_SIZE = 300;
 
 export async function GET() {
   try {
     let processedCount = 0;
+    let failedUpdates: number[] = [];
 
-    // ✅ Only fetch completed, unprocessed games
     const { data: games, error } = await supabase
       .from("games")
       .select("*")
@@ -33,7 +30,6 @@ export async function GET() {
       .not("away_score", "is", null)
       .gt("home_score", 0)
       .gt("away_score", 0)
-      .order("game_date", { ascending: true })
       .limit(BATCH_SIZE);
 
     if (error) {
@@ -48,103 +44,21 @@ export async function GET() {
     }
 
     for (const game of games) {
-      const gameId = game.id;
-
-      // Fetch both teams
-      const { data: teams, error: teamError } = await supabase
-        .from("teams")
-        .select("*")
-        .in("name", [game.home_team, game.away_team]);
-
-      if (teamError || !teams || teams.length < 2) {
-        console.log("TEAM FETCH ISSUE:", gameId);
-        continue;
-      }
-
-      const home = teams.find((t) => t.name === game.home_team);
-      const away = teams.find((t) => t.name === game.away_team);
-
-      if (!home || !away) {
-        console.log("TEAM MATCH ISSUE:", gameId);
-        continue;
-      }
-
-      // Possession estimate
-      const possessions = (game.home_score + game.away_score) / 2;
-      if (!possessions || possessions <= 0) {
-        console.log("INVALID POSSESSIONS:", gameId);
-        continue;
-      }
-
-      // Game efficiencies
-      const homeOff = (game.home_score / possessions) * 100;
-      const homeDef = (game.away_score / possessions) * 100;
-      const awayOff = (game.away_score / possessions) * 100;
-      const awayDef = (game.home_score / possessions) * 100;
-
-      const pointDiff = game.home_score - game.away_score;
-      const marginMultiplier = Math.log(Math.abs(pointDiff) + 1);
-
-      let scaledAlpha = ALPHA * marginMultiplier;
-      if (scaledAlpha > MAX_ALPHA) scaledAlpha = MAX_ALPHA;
-      if (scaledAlpha < MIN_ALPHA) scaledAlpha = MIN_ALPHA;
-
-      const homeOffRating = Number(home.off_rating ?? 100);
-      const homeDefRating = Number(home.def_rating ?? 100);
-      const homePace = Number(home.pace ?? 100);
-
-      const awayOffRating = Number(away.off_rating ?? 100);
-      const awayDefRating = Number(away.def_rating ?? 100);
-      const awayPace = Number(away.pace ?? 100);
-
-      // New ratings
-      const newHomeOff =
-        scaledAlpha * homeOff + (1 - scaledAlpha) * homeOffRating;
-
-      const newHomeDef =
-        scaledAlpha * homeDef + (1 - scaledAlpha) * homeDefRating;
-
-      const newHomePace =
-        ALPHA * possessions + (1 - ALPHA) * homePace;
-
-      const newAwayOff =
-        scaledAlpha * awayOff + (1 - scaledAlpha) * awayOffRating;
-
-      const newAwayDef =
-        scaledAlpha * awayDef + (1 - scaledAlpha) * awayDefRating;
-
-      const newAwayPace =
-        ALPHA * possessions + (1 - ALPHA) * awayPace;
-
-      // Update teams
-      await supabase
-        .from("teams")
-        .update({
-          off_rating: newHomeOff,
-          def_rating: newHomeDef,
-          pace: newHomePace,
-        })
-        .eq("name", game.home_team);
-
-      await supabase
-        .from("teams")
-        .update({
-          off_rating: newAwayOff,
-          def_rating: newAwayDef,
-          pace: newAwayPace,
-        })
-        .eq("name", game.away_team);
-
-      // Mark game processed
-      await supabase
+      const { data: updateData, error: updateError } = await supabase
         .from("games")
         .update({ ratings_processed: true })
-        .eq("id", gameId);
+        .eq("id", game.id)
+        .select("id");
+
+      if (updateError || !updateData || updateData.length === 0) {
+        console.log("UPDATE FAILED:", game.id, updateError);
+        failedUpdates.push(game.id);
+        continue;
+      }
 
       processedCount++;
     }
 
-    // Count remaining completed games
     const { count } = await supabase
       .from("games")
       .select("*", { count: "exact", head: true })
@@ -155,9 +69,10 @@ export async function GET() {
       .gt("away_score", 0);
 
     return Response.json({
-      message: "Batch processed successfully",
+      message: "Strict processing complete",
       processedCount,
       remainingCompletedGames: count ?? 0,
+      failedUpdates,
     });
 
   } catch (err: any) {
