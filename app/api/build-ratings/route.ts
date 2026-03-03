@@ -21,43 +21,36 @@ const MAX_ALPHA = 0.35; // 🔒 Prevent explosive updates
 
 export async function GET() {
   try {
-    // 1️⃣ Get only completed games chronologically
+    // 🔥 PAGINATED FETCH (bypasses Supabase 1000 row limit)
     let allGames: any[] = [];
-let from = 0;
-const pageSize = 1000;
+    let from = 0;
+    const pageSize = 1000;
 
-while (true) {
-  const { data, error } = await supabase
-    .from("games")
-    .select("*")
-    .not("home_score", "is", null)
-    .not("away_score", "is", null)
-    .gt("home_score", 0)
-    .gt("away_score", 0)
-    .order("game_date", { ascending: true })
-    .range(from, from + pageSize - 1);
+    while (true) {
+      const { data, error } = await supabase
+        .from("games")
+        .select("*")
+        .not("home_score", "is", null)
+        .not("away_score", "is", null)
+        .gt("home_score", 0)
+        .gt("away_score", 0)
+        .order("game_date", { ascending: true })
+        .range(from, from + pageSize - 1);
 
-  if (error) {
-    return Response.json({ error: error.message }, { status: 500 });
-  }
+      if (error) {
+        return Response.json({ error: error.message }, { status: 500 });
+      }
 
-  if (!data || data.length === 0) break;
+      if (!data || data.length === 0) break;
 
-  allGames = allGames.concat(data);
+      allGames = allGames.concat(data);
 
-  if (data.length < pageSize) break;
+      if (data.length < pageSize) break;
 
-  from += pageSize;
-}
-
-const games = allGames;
-
-    if (gamesError) {
-      return Response.json(
-        { error: gamesError.message },
-        { status: 500 }
-      );
+      from += pageSize;
     }
+
+    const games = allGames;
 
     if (!games || games.length === 0) {
       return Response.json({
@@ -160,7 +153,7 @@ const games = allGames;
       const adjAwayOff = awayOff - ratings[home].def;
       const adjAwayDef = awayDef - ratings[home].off;
 
-      // 🔹 Scaled alpha (clamped for safety)
+      // 🔹 Scaled alpha (clamped)
       let scaledAlpha = ALPHA * marginMultiplier;
       if (scaledAlpha > MAX_ALPHA) scaledAlpha = MAX_ALPHA;
       if (scaledAlpha < 0.05) scaledAlpha = 0.05;
