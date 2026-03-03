@@ -23,7 +23,7 @@ export async function GET() {
 
     let processedCount = 0;
     let from = 0;
-    const pageSize = 1000;
+    const pageSize = 200;
 
     while (true) {
 
