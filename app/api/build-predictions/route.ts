@@ -33,12 +33,13 @@ function confidenceTier(prob: number) {
 
 export async function GET() {
   try {
-    // 🔥 Pull ONLY today's games (including future unplayed)
+    const today = new Date().toISOString().split("T")[0];
+
+    // Pull today's games
     const { data: games, error } = await supabase
       .from("games")
       .select("*")
-      .gte("game_date", new Date().toISOString().split("T")[0])
-      .lt("game_date", new Date(Date.now() + 86400000).toISOString().split("T")[0]);
+      .eq("game_date", today);
 
     if (error) {
       return Response.json({ error: error.message }, { status: 500 });
@@ -54,7 +55,8 @@ export async function GET() {
     let totalBuilt = 0;
 
     for (const game of games) {
-      // Pull latest team ratings snapshot
+
+      // Pull team ratings
       const { data: homeTeam } = await supabase
         .from("teams")
         .select("*")
@@ -72,6 +74,7 @@ export async function GET() {
       const homeEffNet = homeTeam.off_rating - homeTeam.def_rating;
       const awayEffNet = awayTeam.off_rating - awayTeam.def_rating;
 
+      // Pull ELO
       const { data: eloRows } = await supabase
         .from("elo_ratings")
         .select("*")
@@ -88,60 +91,54 @@ export async function GET() {
       const efficiencyGap =
         homeEffNet - awayEffNet + HOME_ADVANTAGE;
 
-      const today = new Date().toISOString().split("T")[0];
+      // 🔥 Injury Adjustment
+      let homeImpact = 0;
+      let awayImpact = 0;
 
-const { data: missingHome } = await supabase
-  .from("player_status")
-  .select("player_id")
-  .eq("team", game.home_team)
-  .eq("game_date", today)
-  .eq("status", "Out");
+      const { data: missingHome } = await supabase
+        .from("player_status")
+        .select("player_id")
+        .eq("team", game.home_team)
+        .eq("game_date", today)
+        .eq("status", "Out");
 
-let homeImpact = 0;
+      if (missingHome) {
+        for (const player of missingHome) {
+          const { data: impact } = await supabase
+            .from("player_impact")
+            .select("impact_score")
+            .eq("player_id", player.player_id)
+            .single();
 
-if (missingHome) {
-  for (const player of missingHome) {
-    const { data: impact } = await supabase
-      .from("player_impact")
-      .select("impact_score")
-      .eq("player_id", player.player_id)
-      .single();
+          if (impact) homeImpact += Number(impact.impact_score);
+        }
+      }
 
-    if (impact) homeImpact += impact.impact_score;
-  }
-}
+      const { data: missingAway } = await supabase
+        .from("player_status")
+        .select("player_id")
+        .eq("team", game.away_team)
+        .eq("game_date", today)
+        .eq("status", "Out");
 
-const { data: missingAway } = await supabase
-  .from("player_status")
-  .select("player_id")
-  .eq("team", game.away_team)
-  .eq("game_date", today)
-  .eq("status", "Out");
+      if (missingAway) {
+        for (const player of missingAway) {
+          const { data: impact } = await supabase
+            .from("player_impact")
+            .select("impact_score")
+            .eq("player_id", player.player_id)
+            .single();
 
-let awayImpact = 0;
+          if (impact) awayImpact += Number(impact.impact_score);
+        }
+      }
 
-if (missingAway) {
-  for (const player of missingAway) {
-    const { data: impact } = await supabase
-      .from("player_impact")
-      .select("impact_score")
-      .eq("player_id", player.player_id)
-      .single();
+      const injuryAdjustment = homeImpact - awayImpact;
 
-    if (impact) awayImpact += impact.impact_score;
-  }
-}
-
-const injuryAdjustment = homeImpact - awayImpact;
-
-const finalGap =
-  EFF_WEIGHT * efficiencyGap +
-  ELO_WEIGHT * eloGap -
-  injuryAdjustment;
-      
       const finalGap =
         EFF_WEIGHT * efficiencyGap +
-        ELO_WEIGHT * eloGap;
+        ELO_WEIGHT * eloGap -
+        injuryAdjustment;
 
       const homeWinProb = logistic(finalGap);
 
